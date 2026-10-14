@@ -1,0 +1,9 @@
+build-srpm.sh@@s/^\[\[ "${CONTRIB_COMMIT}" =~ ^\[0-9a-f\]{40}\$ \]\] || die/[[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]+$ ]] || die/@@a short (forgeable) commit prefix is accepted
+build-srpm.sh@@s/^  rm -f "${PKG}"\/patches\/\*.patch$/  :/@@the fork's packaging patches stay next to the replacements
+build-srpm.sh@@s/^  cp "${src}\/secureboot\/0001-secureboot.patch" "${PKG}\/secureboot\/"$/  :/@@the secureboot patch isn't replaced
+build-srpm.sh@@s/s\/^PACKAGE_RELEASE = \\".\*\\"\$\/PACKAGE_RELEASE = \\"${PACKAGE_RELEASE}\\"\//s\/x\/x\//@@the release isn't written
+build-srpm.sh@@s/^  git -C "${WORK}\/ls" apply --index "${f}" || die/  true || die/@@fixups aren't applied
+build-srpm.sh@@s/^\[\[ "${described}" == "v${MAJ}.${MIN}.${PATCH}" \]\] \\$/[[ 1 ]] \\/@@a kernel-ark tag on the wrong base is built
+build-srpm.sh@@s/^\[\[ ${#srpms\[@\]} -eq 1 \]\] || die/[[ ${#srpms[@]} -ge 1 ]] || die/@@several source packages: one is picked silently
+build-srpm.sh@@s/^\[\[ "${PATCH}" -ge 1 \]\] || die/true || die/@@a .0 release is accepted
+build-srpm.sh@@s/^\[\[ "${PACKAGE_RELEASE}" =~ ^\[1-9\]\[0-9\]\*\$ \]\] || die/true || die/@@a non-numeric release is accepted
