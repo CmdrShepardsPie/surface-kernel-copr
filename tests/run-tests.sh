@@ -67,7 +67,7 @@ A="${T}/ark"; git -C "${T}" init -q ark
 for v in 54 55 56; do echo "${v}" > "${A}/Makefile"; git -C "${A}" add -A; git -C "${A}" commit -q -m "Linux 6.18.${v}"; git -C "${A}" tag -a -m "Linux 6.18.${v}" "v6.18.${v}"; done   # annotated, as kernel.org's are (git describe needs that)
 git -C "${A}" branch -m linux-6.18.y
 git -C "${A}" checkout -q -b ark; mkdir "${A}/redhat"; echo spec > "${A}/redhat/spec"; git -C "${A}" add -A; git -C "${A}" commit -q -m redhat
-git -C "${A}" tag kernel-6.18.56-0; git -C "${A}" checkout -q linux-6.18.y
+git -C "${A}" tag kernel-6.18.56-0; A1="$(git -C "${A}" rev-parse HEAD)"; git -C "${A}" checkout -q linux-6.18.y
 
 # recipe NAME: a copy of the recipe in ${T}/NAME with pins pointing at the stand-ins.
 recipe() {
@@ -77,6 +77,7 @@ CONTRIB_URL="file://${C}"
 CONTRIB_COMMIT="${C1}"
 ARK_URL="file://${A}"
 PACKAGE_TAG="kernel-6.18.56-0"
+ARK_COMMIT="${A1}"
 PACKAGE_RELEASE="1"
 PKG_PATCHES_URL="file://${P}"
 PKG_PATCHES_COMMIT="${P1}"
@@ -97,6 +98,14 @@ has "the 6.18-era packaging patches replace the fork's" '^pkg_patches=0001-iptsd
 has "...and its secureboot patch" '^sb=era-sb$' "${s}"
 has "the pinned commit, not the branch's newer one" '^cam=vanilla-cameras$' "${s}"
 
+u="$(git config --global user.name || true)"; eq "...the user's git config is left alone" "" "${u}"
+
+echo "== a key in secureboot/ would go into the public SRPM: refused"
+git -C "${C}" checkout -q "${C1}"; echo not-a-key > "${C}/pkg/fedora/kernel-surface/secureboot/MOK.key"
+git -C "${C}" add -A; git -C "${C}" commit -q -m key; CK="$(git -C "${C}" rev-parse HEAD)"; git -C "${C}" checkout -q main
+recipe rk; pin CONTRIB_COMMIT "${CK}"; run bash "${R}/build-srpm.sh" "${T}/outk"
+eq "MOK.key present: refused" 1 "${RC}"; has "...saying why" "secureboot/MOK.key exists" "${OUT}"; n="$(count "${T}/outk")"; eq "...no source package" 0 "${n}"
+
 echo "== without PKG_PATCHES_COMMIT: the fork's own packaging patches"
 recipe r2; pin PKG_PATCHES_COMMIT ""; run bash "${R}/build-srpm.sh" "${T}/out2"
 eq "exit 0" 0 "${RC}"; s="$(cat "${T}"/out2/*.src.rpm)"
@@ -112,7 +121,7 @@ run bash "${R}/build-srpm.sh" "${T}/out3b"; eq "a fixup that doesn't apply: exit
 n="$(count "${T}/out3b")"; eq "...no source package" 0 "${n}"
 
 echo "== pins are checked before anything is fetched"
-for case in "CONTRIB_COMMIT:${C1:0:12}:full 40-digit" "PKG_PATCHES_COMMIT:abc:full commit hash" "PACKAGE_TAG:v6.18.56:look like kernel-" \
+for case in "ARK_COMMIT:${A1:0:12}:full 40-digit commit hash PACKAGE_TAG" "CONTRIB_COMMIT:${C1:0:12}:full 40-digit" "PKG_PATCHES_COMMIT:abc:full commit hash" "PACKAGE_TAG:v6.18.56:look like kernel-" \
             "PACKAGE_TAG:kernel-6.18.0-0:no previous point release" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty"; do
   IFS=: read -r k v msg <<<"${case}"; recipe rp; pin "${k}" "${v}"
   run bash "${R}/build-srpm.sh" "${T}/outp"; eq "${k}=${v:-''}: refused" 1 "${RC}"; has "...saying why" "${msg}" "${OUT}"
@@ -126,15 +135,22 @@ n="$(count "${T}/outc")"; eq "...no source package" 0 "${n}"
 
 echo "== kernel-ark: the tag must sit on vX.Y.Z of linux-X.Y.y"
 git -C "${A}" tag -f kernel-6.18.56-0 v6.18.55 >/dev/null   # a tag on the wrong base
-recipe ra; run bash "${R}/build-srpm.sh" "${T}/outa"; eq "tag not based on v6.18.56: refused" 1 "${RC}"
+a55="$(git -C "${A}" rev-parse 'v6.18.55^{commit}')"; recipe ra; pin ARK_COMMIT "${a55}"; run bash "${R}/build-srpm.sh" "${T}/outa"; eq "tag not based on v6.18.56: refused" 1 "${RC}"
 has "...saying so" "error: kernel-ark: .*\(isn't based on v6.18.56\|no common base\)" "${OUT}"
 # ...or on a later point release (the branch moved on, and the tag sits on v6.18.57).
 git -C "${A}" checkout -q linux-6.18.y; echo 57 > "${A}/Makefile"; git -C "${A}" commit -q -am "Linux 6.18.57"; git -C "${A}" tag -a -m "Linux 6.18.57" v6.18.57
 git -C "${A}" checkout -q -b ark57; echo spec57 > "${A}/redhat-spec"; git -C "${A}" add -A; git -C "${A}" commit -q -m redhat57
 git -C "${A}" tag -f kernel-6.18.56-0 ark57 >/dev/null; git -C "${A}" checkout -q linux-6.18.y
-recipe ra2; run bash "${R}/build-srpm.sh" "${T}/outa2"; eq "tag based on v6.18.57: refused" 1 "${RC}"
+a57="$(git -C "${A}" rev-parse ark57)"; recipe ra2; pin ARK_COMMIT "${a57}"; run bash "${R}/build-srpm.sh" "${T}/outa2"; eq "tag based on v6.18.57: refused" 1 "${RC}"
 has "...saying so" "isn't based on v6.18.56" "${OUT}"
 git -C "${A}" tag -f kernel-6.18.56-0 ark >/dev/null
+
+echo "== kernel-ark: the tag must point to the pinned commit"
+git -C "${A}" checkout -q ark; echo moved > "${A}/redhat/spec"; git -C "${A}" commit -q -am "redhat: moved"
+git -C "${A}" tag -f kernel-6.18.56-0 >/dev/null; git -C "${A}" checkout -q linux-6.18.y   # same base, another commit
+recipe rt; run bash "${R}/build-srpm.sh" "${T}/outt"; eq "the tag moved to another commit: refused" 1 "${RC}"
+has "...saying so" "points to [0-9a-f]*, not the pinned ${A1}" "${OUT}"; n="$(count "${T}/outt")"; eq "...no source package" 0 "${n}"
+git -C "${A}" tag -f kernel-6.18.56-0 "${A1}" >/dev/null
 
 echo "== more than one source package is an error"
 recipe rm2; sed -i 's|^(out / f"kernel-surface|(out / "extra.src.rpm").write_text("x")\n(out / f"kernel-surface|' "${C}/pkg/fedora/kernel-surface/build-linux-surface.py"

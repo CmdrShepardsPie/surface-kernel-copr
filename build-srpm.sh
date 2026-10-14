@@ -11,7 +11,7 @@
 #   3. PACKAGE_TAG and PACKAGE_RELEASE written into build-linux-surface.py;
 #   4. fixups/*.patch (if any) applied to that tree with `git apply`, in name order (for a change the
 #      Fedora build needs and the fork doesn't carry; each says why in its header);
-#   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, fetched shallow with just the history
+#   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
 #      kernel-ark's Makefile needs: the tag, vX.Y.Z, and the linux-X.Y.y branch, back to the previous
 #      point release;
 #   6. linux-surface's own build-linux-surface.py --mode srpm (Red Hat's test key: the kernel is signed
@@ -27,7 +27,7 @@ die() { echo "build-srpm.sh: error: $*" >&2; exit 1; }
 mkdir -p "$1"; OUTDIR="$(cd "$1" && pwd)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PKG_PATCHES_URL="" PKG_PATCHES_COMMIT="" ARK_URL=""
+CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PKG_PATCHES_URL="" PKG_PATCHES_COMMIT="" ARK_URL="" ARK_COMMIT=""
 # shellcheck source=pins.conf
 . "${HERE}/pins.conf"
 [[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "CONTRIB_COMMIT must be a full 40-digit commit hash"
@@ -37,6 +37,7 @@ MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
 [[ "${PATCH}" -ge 1 ]] || die "PACKAGE_TAG: a .0 release has no previous point release to cut the history at"
 [[ "${PACKAGE_RELEASE}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_RELEASE must be a positive number"
 [[ -n "${ARK_URL}" ]] || die "ARK_URL is empty"
+[[ "${ARK_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "ARK_COMMIT must be the full 40-digit commit hash PACKAGE_TAG points to"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
@@ -85,6 +86,8 @@ git init -q --bare "${ARK_MIRROR}"
 git -C "${ARK_MIRROR}" fetch -q --shallow-exclude="v${MAJ}.${MIN}.$((PATCH - 1))" "${ARK_URL}" \
   "refs/tags/${PACKAGE_TAG}:refs/tags/${PACKAGE_TAG}" "refs/tags/v${MAJ}.${MIN}.${PATCH}:refs/tags/v${MAJ}.${MIN}.${PATCH}" \
   "refs/heads/linux-${MAJ}.${MIN}.y:refs/heads/linux-${MAJ}.${MIN}.y" || die "kernel-ark: couldn't fetch ${PACKAGE_TAG}, v${MAJ}.${MIN}.${PATCH} and linux-${MAJ}.${MIN}.y"
+tagged="$(git -C "${ARK_MIRROR}" rev-parse "${PACKAGE_TAG}^{commit}")" || tagged=""
+[[ "${tagged}" == "${ARK_COMMIT}" ]] || die "kernel-ark: ${PACKAGE_TAG} points to ${tagged:-nothing}, not the pinned ${ARK_COMMIT} (moved tag?)"
 base="$(git -C "${ARK_MIRROR}" merge-base "${PACKAGE_TAG}" "linux-${MAJ}.${MIN}.y")" || die "kernel-ark: no common base of ${PACKAGE_TAG} and linux-${MAJ}.${MIN}.y"
 described="$(git -C "${ARK_MIRROR}" describe "${base}")" || described=""
 [[ "${described}" == "v${MAJ}.${MIN}.${PATCH}" ]] \
@@ -92,9 +95,14 @@ described="$(git -C "${ARK_MIRROR}" describe "${base}")" || described=""
 git clone -q "${ARK_MIRROR}" "${PKG}/kernel-ark"
 
 echo "== build-linux-surface.py --mode srpm"
-git config --global user.name >/dev/null 2>&1 || git config --global user.name "surface-kernel build"
-git config --global user.email >/dev/null 2>&1 || git config --global user.email "surface-kernel-build"   # (any ident: these commits never leave the build)
-(cd "${PKG}" && python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir "${WORK}/srpm" </dev/null)
+# Never a private key in the public SRPM: with secureboot/MOK.key and MOK.crt present, linux-surface's
+# packaging adds both to the source package (Source7001/7002). Neither pinned tree has them; this
+# makes sure nothing (a fix-up, a packaging change) slips them in.
+for f in MOK.key MOK.crt; do [[ ! -e "${PKG}/secureboot/${f}" ]] || die "secureboot/${f} exists: it would go into the public SRPM"; done
+# build-ark.py commits in kernel-ark: give git an identity for this build only, never the user's config.
+(cd "${PKG}" && GIT_AUTHOR_NAME="surface-kernel build" GIT_AUTHOR_EMAIL="surface-kernel-build" \
+  GIT_COMMITTER_NAME="surface-kernel build" GIT_COMMITTER_EMAIL="surface-kernel-build" \
+  python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir "${WORK}/srpm" </dev/null)
 srpms=("${WORK}"/srpm/*.src.rpm)
 [[ ${#srpms[@]} -eq 1 ]] || die "expected one source package, got ${#srpms[@]}"
 cp "${srpms[0]}" "${OUTDIR}/"
