@@ -1,0 +1,26 @@
+Fedora-only fix-up, kept here on purpose (the config is shared with non-Fedora builds): drop the
+CONFIG_SCSI_UFSHCD override from configs/surface-6.18.config, as linux-surface
+did for 6.19 in 4c136ec ("configs: Remove CONFIG_SCSI_UFSHCD override").
+kernel-ark 6.18.56's Fedora configs already set CONFIG_SCSI_UFSHCD=m and
+CONFIG_SCSI_UFSHCD_PCI=m on x86 and aarch64, so the x86_64 kernel is unchanged;
+the override (applied to every architecture and variant) made kernel-ark's config
+check (dist-configs-check) fail elsewhere, through the PM_DEVFREQ, NLS and UFS
+options it pulls in.
+---
+diff --git a/configs/surface-6.18.config b/configs/surface-6.18.config
+index 6441f1b..1c11f9c 100644
+--- a/configs/surface-6.18.config
++++ b/configs/surface-6.18.config
+@@ -69,12 +69,6 @@ CONFIG_VIDEO_OV8865=m
+ ##
+ CONFIG_APDS9960=m
+ 
+-##
+-## Build-in UFS support (required for some Surface Go devices)
+-##
+-CONFIG_SCSI_UFSHCD=m
+-CONFIG_SCSI_UFSHCD_PCI=m
+-
+ ##
+ ## Other Drivers
+ ##
