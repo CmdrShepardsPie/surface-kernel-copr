@@ -1,4 +1,4 @@
-Fedora-only fix-up (provisional, pending the patch owner's choice): kernel-ark's
+Fedora-only fix-up, kept here on purpose (the patch series must also apply to vanilla stable): kernel-ark's
 kernel-6.18.56-0 already carries ipu-bridge's upside_down_sensor_dmi_ids table
 (not in vanilla v6.18.56), which the 6.18 rotation-quirk patch collides with.
 This swaps in linux-surface's 6.19 version of that one patch, which adds the
