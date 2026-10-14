@@ -10,3 +10,5 @@ build-srpm.sh@@s/^\[\[ "${PACKAGE_RELEASE}" =~ ^\[1-9\]\[0-9\]\*\$ \]\] || die/t
 build-srpm.sh@@s/^\[\[ "${tagged}" == "${ARK_COMMIT}" \]\] || die/true || die/@@a moved kernel-ark tag is built
 build-srpm.sh@@s/^for f in MOK.key MOK.crt; do \[\[ ! -e "${PKG}\/secureboot\/${f}" \]\] || die/for f in MOK.key MOK.crt; do true || die/@@a MOK key would be put into the public SRPM
 build-srpm.sh@@s/^\[\[ "${ARK_COMMIT}" =~ ^\[0-9a-f\]{40}\$ \]\] || die/true || die/@@a short or missing kernel-ark hash is accepted
+.copr/Makefile@@s/ 'dnf5-command(builddep)'$//@@builddep runs in COPR's chroot without its dnf5 plugin
+.copr/Makefile@@s/^\tdnf -y builddep kernel$/\t-dnf -y builddep kernel/@@a failed builddep is ignored and the build goes on
