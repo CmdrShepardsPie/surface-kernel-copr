@@ -1,0 +1,21 @@
+Fedora-only fix-up, kept here on purpose (the patch series must also apply to vanilla stable): kernel-ark's
+kernel-7.2.10-0 carries a newer skl_int3472_handle_gpio_resources() than vanilla v7.2.10, which logs each
+error with dev_err_probe() where it happens and has no err_msg variable. The fix "Set error state for SP9
+GPIO types" sets err_msg on the Surface Pro 9 regulator failure path, as vanilla needs, so on kernel-ark
+discrete.c fails to compile ("'err_msg' undeclared"). This logs the error with dev_err_probe() there
+instead, as the neighbouring cases do on kernel-ark; the error is still returned. Drop this when
+kernel-ark's discrete.c has err_msg again, or when linux-surface's patch stops using it.
+---
+diff --git a/patches/7.2/0013-cameras.patch b/patches/7.2/0013-cameras.patch
+index 1f5d4be..f8fc961 100644
+--- a/patches/7.2/0013-cameras.patch
++++ b/patches/7.2/0013-cameras.patch
+@@ -1106,7 +1106,7 @@ index b2a54733d..6d65adb0a 100644
+  		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
+  		    if (ret) {
+ -			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
+-+			err_msg = "Failed to register regulator\n";
+++			dev_err_probe(int3472->dev, ret, "Failed to register regulator\n");
+  		    }
+  		    break;
+  		case 0x11:
