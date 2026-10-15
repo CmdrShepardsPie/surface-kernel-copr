@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# tests/run-tests.sh: hermetic tests of build-srpm.sh (no network). The patch repository, the
-# packaging-patch repository and kernel-ark are small local git repositories served over file://,
-# with the same layout the script relies on; build-linux-surface.py is a stand-in that records what
-# it was given and writes one fake .src.rpm.
+# tests/run-tests.sh: hermetic tests of build-srpm.sh and .copr/Makefile (no network). The patch
+# repository, the packaging-patch repository and kernel-ark are small local git repositories served
+# over file://, with the same layout the script relies on; build-linux-surface.py is a stand-in that
+# records what it was given and writes one fake .src.rpm.
 #
 # Not modelled: the real build-linux-surface.py/build-ark.py (patch application, kernel-ark's
 # Makefile), network failures, and GitHub's or GitLab's own fetch rules (here the stand-ins allow
@@ -156,6 +156,33 @@ echo "== more than one source package is an error"
 recipe rm2; sed -i 's|^(out / f"kernel-surface|(out / "extra.src.rpm").write_text("x")\n(out / f"kernel-surface|' "${C}/pkg/fedora/kernel-surface/build-linux-surface.py"
 git -C "${C}" commit -q -am two; C2="$(git -C "${C}" rev-parse HEAD)"; pin CONTRIB_COMMIT "${C2}"
 run bash "${R}/build-srpm.sh" "${T}/outm"; eq "two source packages: refused" 1 "${RC}"; has "...saying so" "expected one source package, got 2" "${OUT}"
+
+echo "== .copr/Makefile: builddep's dnf5 plugin is installed before builddep runs"
+# The dnf stand-in behaves like dnf5 in COPR's minimal chroot, which has no dnf5-plugins: builddep is
+# an unknown command until something installs the plugin (by package or capability name), and it
+# fails when ${K}/no-deps exists (a missing source package, say). Every other dnf call succeeds and is
+# only logged; it doesn't model packages, repositories or the network. build-srpm.sh is a stand-in too.
+K="${T}/mk"; mkdir -p "${K}/.copr" "${K}/bin"; cp "${HERE}/.copr/Makefile" "${K}/.copr/"
+printf 'echo "build-srpm.sh $*" >> "%s/log"\n' "${K}" > "${K}/build-srpm.sh"
+cat > "${K}/bin/dnf" <<SH
+#!/usr/bin/env bash
+echo "dnf \$*" >> "${K}/log"
+if [[ " \$* " == *" builddep "* && ! -e "${K}/plugins" ]]; then
+  echo 'Unknown argument "builddep" for command "dnf5". Add "--help" for more information about the arguments.' >&2; exit 2
+fi
+if [[ " \$* " == *" builddep "* && -e "${K}/no-deps" ]]; then echo "No match for argument: kernel" >&2; exit 1; fi
+if [[ " \$* " == *" install "* && ( " \$* " == *" dnf5-command(builddep) "* || " \$* " == *" dnf5-plugins "* ) ]]; then touch "${K}/plugins"; fi
+SH
+chmod +x "${K}/bin/dnf"
+run env -C "${K}" "PATH=${K}/bin:${PATH}" make -s -f .copr/Makefile srpm outdir=/out spec=x.spec
+eq "make srpm in a chroot without dnf5-plugins: succeeds" 0 "${RC}"; eq "...quietly" "" "${OUT}"
+log="$(cat "${K}/log")"
+has "...builddep kernel ran" "^dnf -y builddep kernel$" "${log}"
+has "...then build-srpm.sh, into outdir" "^build-srpm.sh /out$" "${log}"
+rm -f "${K}/log" "${K}/plugins"; touch "${K}/no-deps"
+run env -C "${K}" "PATH=${K}/bin:${PATH}" make -s -f .copr/Makefile srpm outdir=/out spec=x.spec
+eq "builddep fails: make srpm fails" 2 "${RC}"; has "...with dnf's error" "No match for argument: kernel" "${OUT}"
+log="$(cat "${K}/log")"; eq "...before build-srpm.sh runs" "" "$(grep '^build-srpm.sh' <<<"${log}" || true)"
 
 echo
 echo "copr-recipe: ${PASS} passed, ${FAIL} failed"

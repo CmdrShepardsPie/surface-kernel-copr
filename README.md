@@ -16,7 +16,7 @@ linux-surface doesn't publish for Fedora (today: 6.18 LTS), until it does.
 | `build-srpm.sh` | Builds the source package (SRPM) from `pins.conf`. Each step is described at the top of the script. |
 | `.copr/Makefile` | COPR's "make srpm" entry point: installs what `build-srpm.sh` needs, then runs it. |
 | `fixups/*.patch` | Changes the Fedora build needs that the patch repository doesn't carry, applied in name order. Each one says why in its header. |
-| `tests/run-tests.sh`, `tests/mutations.txt` | Hermetic tests of `build-srpm.sh` against local stand-in repositories (no network), and the mutations they must catch (`FILE@@SED-EXPRESSION@@WHAT IT BREAKS`). |
+| `tests/run-tests.sh`, `tests/mutations.txt` | Hermetic tests of `build-srpm.sh` and `.copr/Makefile` against local stand-in repositories (no network), and the mutations they must catch (`FILE@@SED-EXPRESSION@@WHAT IT BREAKS`). |
 
 ## How it's built
 
@@ -59,7 +59,7 @@ The SRPM lands in `/tmp/out`. Building it takes a few minutes, mostly to compres
 kernel source. Building the binary RPMs from it (`rpmbuild --rebuild`) takes hours on a
 small machine.
 
-Tests (no network; needs `git` and `bash`):
+Tests (no network; needs `git`, `bash`, GNU `make` and coreutils 8.28 or later):
 
 ```
 bash tests/run-tests.sh
