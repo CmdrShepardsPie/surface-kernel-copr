@@ -94,7 +94,7 @@ s="$(cat "${srpms[0]}")"
 eq "...named for the pinned kernel and release" "kernel-surface-6.18.56-1.surface.fc44.src.rpm" "${srpms[0]##*/}"
 has "srpm mode" '^mode=srpm$' "${s}"; has "PACKAGE_TAG written" '^tag=kernel-6.18.56-0$' "${s}"; has "PACKAGE_RELEASE written" '^release=1$' "${s}"
 has "kernel-ark checked out at the tag" '^ark_head=kernel-6.18.56-0$' "${s}"
-has "the 6.18-era packaging patches replace the fork's" '^pkg_patches=0001-iptsd.patch,0002-name.patch$' "${s}"
+has "the PKG_PATCHES_COMMIT packaging patches replace CONTRIB's" '^pkg_patches=0001-iptsd.patch,0002-name.patch$' "${s}"
 has "...and its secureboot patch" '^sb=era-sb$' "${s}"
 has "the pinned commit, not the branch's newer one" '^cam=vanilla-cameras$' "${s}"
 
@@ -106,10 +106,10 @@ git -C "${C}" add -A; git -C "${C}" commit -q -m key; CK="$(git -C "${C}" rev-pa
 recipe rk; pin CONTRIB_COMMIT "${CK}"; run bash "${R}/build-srpm.sh" "${T}/outk"
 eq "MOK.key present: refused" 1 "${RC}"; has "...saying why" "secureboot/MOK.key exists" "${OUT}"; n="$(count "${T}/outk")"; eq "...no source package" 0 "${n}"
 
-echo "== without PKG_PATCHES_COMMIT: the fork's own packaging patches"
+echo "== without PKG_PATCHES_COMMIT: CONTRIB's own packaging patches"
 recipe r2; pin PKG_PATCHES_COMMIT ""; run bash "${R}/build-srpm.sh" "${T}/out2"
 eq "exit 0" 0 "${RC}"; s="$(cat "${T}"/out2/*.src.rpm)"
-has "fork's patches kept" '^pkg_patches=0001-fork.patch$' "${s}"; has "...and its secureboot patch" '^sb=fork-sb$' "${s}"
+has "CONTRIB's patches kept" '^pkg_patches=0001-fork.patch$' "${s}"; has "...and its secureboot patch" '^sb=fork-sb$' "${s}"
 
 echo "== fixups"
 recipe r3

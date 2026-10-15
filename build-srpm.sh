@@ -6,11 +6,11 @@
 # Steps, all pinned (nothing floats):
 #   1. linux-surface's patches and Fedora packaging: CONTRIB_URL at the full commit CONTRIB_COMMIT
 #      (fetched by hash, and checked to be that commit);
-#   2. optionally, the Fedora packaging patches from PKG_PATCHES_URL at PKG_PATCHES_COMMIT, when the
-#      fork's don't fit this kernel's spec;
+#   2. optionally, the Fedora packaging patches from PKG_PATCHES_URL at PKG_PATCHES_COMMIT, when
+#      CONTRIB's don't fit this kernel's spec;
 #   3. PACKAGE_TAG and PACKAGE_RELEASE written into build-linux-surface.py;
 #   4. fixups/*.patch (if any) applied to that tree with `git apply`, in name order (for a change the
-#      Fedora build needs and the fork doesn't carry; each says why in its header);
+#      Fedora build needs and the patch repository doesn't carry; each says why in its header);
 #   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
 #      kernel-ark's Makefile needs: the tag, vX.Y.Z, and the linux-X.Y.y branch, back to the previous
 #      point release;
@@ -32,7 +32,7 @@ CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PKG_PATCHES_U
 . "${HERE}/pins.conf"
 [[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "CONTRIB_COMMIT must be a full 40-digit commit hash"
 [[ -z "${PKG_PATCHES_COMMIT}" || "${PKG_PATCHES_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "PKG_PATCHES_COMMIT must be empty or a full commit hash"
-[[ "${PACKAGE_TAG}" =~ ^kernel-([0-9]+)\.([0-9]+)\.([0-9]+)-0$ ]] || die "PACKAGE_TAG must look like kernel-6.18.56-0"
+[[ "${PACKAGE_TAG}" =~ ^kernel-([0-9]+)\.([0-9]+)\.([0-9]+)-0$ ]] || die "PACKAGE_TAG must look like kernel-7.2.10-0"
 MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
 [[ "${PATCH}" -ge 1 ]] || die "PACKAGE_TAG: a .0 release has no previous point release to cut the history at"
 [[ "${PACKAGE_RELEASE}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_RELEASE must be a positive number"

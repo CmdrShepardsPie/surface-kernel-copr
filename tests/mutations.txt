@@ -1,5 +1,5 @@
 build-srpm.sh@@s/^\[\[ "${CONTRIB_COMMIT}" =~ ^\[0-9a-f\]{40}\$ \]\] || die/[[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]+$ ]] || die/@@a short (forgeable) commit prefix is accepted
-build-srpm.sh@@s/^  rm -f "${PKG}"\/patches\/\*.patch$/  :/@@the fork's packaging patches stay next to the replacements
+build-srpm.sh@@s/^  rm -f "${PKG}"\/patches\/\*.patch$/  :/@@CONTRIB's packaging patches stay next to the replacements
 build-srpm.sh@@s/^  cp "${src}\/secureboot\/0001-secureboot.patch" "${PKG}\/secureboot\/"$/  :/@@the secureboot patch isn't replaced
 build-srpm.sh@@s/s\/^PACKAGE_RELEASE = \\".\*\\"\$\/PACKAGE_RELEASE = \\"${PACKAGE_RELEASE}\\"\//s\/x\/x\//@@the release isn't written
 build-srpm.sh@@s/^  git -C "${WORK}\/ls" apply --index "${f}" || die/  true || die/@@fixups aren't applied
