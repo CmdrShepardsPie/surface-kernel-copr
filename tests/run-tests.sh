@@ -18,11 +18,27 @@ git config --global init.defaultBranch main
 git config --global uploadpack.allowAnySHA1InWant true
 git config --global protocol.file.allow always
 
+# rpmbuild stand-in: answers `rpmbuild --eval '%{?dist}'` and `'%{?fedora}'` from FAKE_RPM_DIST and
+# FAKE_RPM_FEDORA, and fails as a broken rpmbuild would when FAKE_RPM_FAIL is set. The default is COPR's
+# SRPM chroot: %dist empty, %fedora 44. It models nothing else of rpmbuild.
+mkdir -p "${T}/bin"
+cat > "${T}/bin/rpmbuild" <<'SH'
+#!/usr/bin/env bash
+[[ -z "${FAKE_RPM_FAIL-}" ]] || { echo "error: rpmbuild stand-in failing" >&2; exit 1; }
+case "$*" in
+  "--eval %{?dist}") printf '%s\n' "${FAKE_RPM_DIST-}" ;;
+  "--eval %{?fedora}") printf '%s\n' "${FAKE_RPM_FEDORA-44}" ;;
+  *) echo "rpmbuild stand-in: unsupported: $*" >&2; exit 1 ;;
+esac
+SH
+chmod +x "${T}/bin/rpmbuild"; export PATH="${T}/bin:${PATH}"
+
 PASS=0; FAIL=0
 ok() { PASS=$((PASS + 1)); printf '  ok    %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  FAIL  %s\n' "$1"; }
 eq() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1: expected '$2', got '$3'"; fi; }
 has() { local t; if grep -q -- "$2" <<<"$3"; then ok "$1"; else t="$(tail -n 3 <<<"$3")"; bad "$1: no '$2' in: ${t//$'\n'/|}"; fi; }
+hasnt() { if grep -q -- "$2" <<<"$3"; then bad "$1: unexpected '$2'"; else ok "$1"; fi; }
 count() { local f=("$1"/*.src.rpm); echo "${#f[@]}"; }   # COUNT DIR: how many source packages DIR holds
 run() { local o r=0; o="$("$@" 2>&1)" || r=$?; OUT="${o}"; RC="${r}"; }
 
@@ -31,7 +47,7 @@ run() { local o r=0; o="$("$@" 2>&1)" || r=$?; OUT="${o}"; RC="${r}"; }
 C="${T}/contrib"; mkdir -p "${C}/pkg/fedora/kernel-surface/patches" "${C}/pkg/fedora/kernel-surface/secureboot" "${C}/patches/6.18"
 cat > "${C}/pkg/fedora/kernel-surface/build-linux-surface.py" <<'PY'
 #!/usr/bin/env python3
-import argparse, pathlib, subprocess
+import argparse, os, pathlib, subprocess
 PACKAGE_TAG = "kernel-6.19.8-0"
 PACKAGE_RELEASE = "3"
 p = argparse.ArgumentParser(); p.add_argument("--mode"); p.add_argument("--ark-dir"); p.add_argument("--outdir")
@@ -40,7 +56,7 @@ here = pathlib.Path(__file__).resolve().parent
 ver = PACKAGE_TAG.split("-")[1]
 subprocess.run(["git", "-C", a.ark_dir, "checkout", "-q", PACKAGE_TAG], check=True)   # as build-ark.py does
 head = subprocess.run(["git", "-C", a.ark_dir, "describe", "--tags", "--exact-match", "HEAD"], capture_output=True, text=True).stdout.strip()
-log = [f"mode={a.mode}", f"tag={PACKAGE_TAG}", f"release={PACKAGE_RELEASE}", f"ark_head={head}",
+log = [f"mode={a.mode}", f"tag={PACKAGE_TAG}", f"release={PACKAGE_RELEASE}", f"ark_head={head}", "dist=" + os.environ.get("DIST", ""),
        "pkg_patches=" + ",".join(sorted(x.name for x in (here / "patches").glob("*.patch"))),
        "sb=" + (here / "secureboot" / "0001-secureboot.patch").read_text().strip(),
        "cam=" + (here / ".." / ".." / ".." / "patches" / "6.18" / "0013-cameras.patch").read_text().strip()]
@@ -99,6 +115,18 @@ has "...and its secureboot patch" '^sb=era-sb$' "${s}"
 has "the pinned commit, not the branch's newer one" '^cam=vanilla-cameras$' "${s}"
 
 u="$(git config --global user.name || true)"; eq "...the user's git config is left alone" "" "${u}"
+
+echo "== DIST for kernel-ark"
+has "COPR's chroot (%dist empty, %fedora 44): DIST=.fc44" '^dist=.fc44$' "${s}"
+recipe rd; FAKE_RPM_DIST=.fc43 run bash "${R}/build-srpm.sh" "${T}/outd"; eq "%dist set: exit 0" 0 "${RC}"
+s="$(cat "${T}"/outd/*.src.rpm)"; has "...and DIST is rpm's %dist" '^dist=.fc43$' "${s}"
+recipe rd2; FAKE_RPM_FEDORA="" run bash "${R}/build-srpm.sh" "${T}/outd2"; eq "neither %dist nor %fedora: refused" 1 "${RC}"
+has "...saying why" "neither %dist nor a numeric %fedora" "${OUT}"; n="$(count "${T}/outd2")"; eq "...no source package" 0 "${n}"
+recipe rd3; FAKE_RPM_FEDORA=44rc run bash "${R}/build-srpm.sh" "${T}/outd3"; eq "%fedora not a number: refused" 1 "${RC}"
+n="$(count "${T}/outd3")"; eq "...no source package" 0 "${n}"
+recipe rd4; FAKE_RPM_FAIL=1 run bash "${R}/build-srpm.sh" "${T}/outd4"; eq "rpmbuild fails: refused" 1 "${RC}"
+has "...with rpmbuild's error" "rpmbuild stand-in failing" "${OUT}"; hasnt "...not a misleading one" "neither %dist" "${OUT}"
+n="$(count "${T}/outd4")"; eq "...no source package" 0 "${n}"
 
 echo "== a key in secureboot/ would go into the public SRPM: refused"
 git -C "${C}" checkout -q "${C1}"; echo not-a-key > "${C}/pkg/fedora/kernel-surface/secureboot/MOK.key"

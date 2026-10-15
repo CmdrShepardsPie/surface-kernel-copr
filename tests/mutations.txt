@@ -12,3 +12,7 @@ build-srpm.sh@@s/^for f in MOK.key MOK.crt; do \[\[ ! -e "${PKG}\/secureboot\/${
 build-srpm.sh@@s/^\[\[ "${ARK_COMMIT}" =~ ^\[0-9a-f\]{40}\$ \]\] || die/true || die/@@a short or missing kernel-ark hash is accepted
 .copr/Makefile@@s/ 'dnf5-command(builddep)'$//@@builddep runs in COPR's chroot without its dnf5 plugin
 .copr/Makefile@@s/^\tdnf -y builddep kernel$/\t-dnf -y builddep kernel/@@a failed builddep is ignored and the build goes on
+build-srpm.sh@@s/^export DIST$/:/@@DIST isn't passed to kernel-ark, so rpmbuild gets an empty %dist
+build-srpm.sh@@s/^  \[\[ "\${fedora}" =~ ^\[0-9\]+\$ \]\] || die/  true || die/@@an unknown Fedora release gives DIST=.fc
+build-srpm.sh@@s/^DIST="\$(rpmbuild --eval '%{?dist}')"$/DIST="$(rpmbuild --eval '%{?dist}')" || DIST=""/;s/^  fedora="\$(rpmbuild --eval '%{?fedora}')"$/  fedora="$(rpmbuild --eval '%{?fedora}')" || fedora=""/@@a failing rpmbuild is reported as an unknown Fedora release
+build-srpm.sh@@s/=~ ^\[0-9\]+\$ \]\]/=~ [0-9]+ ]]/@@a %fedora that only contains a number (44rc) is accepted

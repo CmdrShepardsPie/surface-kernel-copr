@@ -14,7 +14,8 @@
 #   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
 #      kernel-ark's Makefile needs: the tag, vX.Y.Z, and the linux-X.Y.y branch, back to the previous
 #      point release;
-#   6. linux-surface's own build-linux-surface.py --mode srpm (Red Hat's test key: the kernel is signed
+#   6. DIST (the Fedora release suffix) from rpmbuild, for kernel-ark;
+#   7. linux-surface's own build-linux-surface.py --mode srpm (Red Hat's test key: the kernel is signed
 #      with the owner's MOK on the machine it's installed on, never here).
 #
 # Exit status: 0 with exactly one *.src.rpm in OUTDIR; non-zero (with a message) otherwise.
@@ -93,6 +94,21 @@ described="$(git -C "${ARK_MIRROR}" describe "${base}")" || described=""
 [[ "${described}" == "v${MAJ}.${MIN}.${PATCH}" ]] \
   || die "kernel-ark: ${PACKAGE_TAG} isn't based on v${MAJ}.${MIN}.${PATCH} on linux-${MAJ}.${MIN}.y (has the branch moved past it?)"
 git clone -q "${ARK_MIRROR}" "${PKG}/kernel-ark"
+
+# kernel-ark's Makefile takes DIST (the release suffix, e.g. .fc44) from the environment, or else from
+# `rpmbuild --eval '%{?dist}'`. COPR's SRPM chroot leaves %dist empty, and with an empty DIST rpmbuild
+# refuses the spec ("Macro %dist has empty body") and kernel-ark would treat the build as RHEL. So name
+# the Fedora release here, always from rpmbuild (a DIST already in the environment is replaced): %dist
+# if it's set, else .fc%fedora. (COPR rebuilds the SRPM in each chroot with that chroot's own %dist, so
+# this only names the source package.)
+DIST="$(rpmbuild --eval '%{?dist}')"
+if [[ -z "${DIST}" ]]; then
+  fedora="$(rpmbuild --eval '%{?fedora}')"
+  [[ "${fedora}" =~ ^[0-9]+$ ]] || die "rpmbuild defines neither %dist nor a numeric %fedora, so the Fedora release is unknown"
+  DIST=".fc${fedora}"
+fi
+export DIST
+echo "== DIST=${DIST}"
 
 echo "== build-linux-surface.py --mode srpm"
 # Never a private key in the public SRPM: with secureboot/MOK.key and MOK.crt present, linux-surface's
