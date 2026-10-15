@@ -3,10 +3,13 @@
 The build recipe for a COPR repository of self-built [linux-surface](https://github.com/linux-surface/linux-surface)
 kernels for Fedora: linux-surface's patches on a long-term or stable kernel, packaged with
 linux-surface's own Fedora packaging (`pkg/fedora/kernel-surface`), on Fedora's kernel tree
-([kernel-ark](https://gitlab.com/cki-project/kernel-ark)).
+([kernel-ark](https://gitlab.com/cki-project/kernel-ark)). Where linux-surface's spec patches don't fit
+the kernel-ark release, they come from elsewhere, named in `pins.conf` (for 7.2: orthogonaleety's
+`f44-7.2.10-0` branch). For 7.2, the pinned patches also carry fixes and backports not yet in
+linux-surface (see `pins.conf`).
 
 These are **not** official linux-surface builds. They exist to run a kernel series that
-linux-surface doesn't publish for Fedora (today: 6.18 LTS), until it does.
+linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until it does.
 
 ## What's here
 
@@ -34,12 +37,17 @@ machine's own Machine Owner Key (MOK). No private key is ever in this repository
 
 ## Updating to a new point release
 
-1. Rebase the patches onto the new point release in the patch repository, and note the
-   new commit's full hash.
+1. Find the commit with linux-surface's patches for the new point release (upstream, or a pull
+   request there) and its full hash. Name it `copr/X.Y.Z-patches` (a tag, or a branch where
+   tags can't be pushed) in the repository `CONTRIB_URL` points to (a fork in the same network;
+   here CmdrShepardsPie/linux-surface-contrib, which only its owner can push to), so the commit
+   stays fetchable even if its branch moves.
 2. In `pins.conf`, set `CONTRIB_COMMIT` to that hash, set `PACKAGE_TAG` to kernel-ark's
-   tag for the release (`kernel-X.Y.Z-0`) and `ARK_COMMIT` to the full hash it points to
-   (`git ls-remote https://gitlab.com/cki-project/kernel-ark refs/tags/kernel-X.Y.Z-0`), and set
-   `PACKAGE_RELEASE` back to `1`.
+   tag for the release (`kernel-X.Y.Z-0`) and `ARK_COMMIT` to the commit it points to (the
+   `^{}` line of `git ls-remote https://gitlab.com/cki-project/kernel-ark 'refs/tags/kernel-X.Y.Z-0*'`;
+   the other line is the tag object), and set `PACKAGE_RELEASE` back to `1`. If
+   `PKG_PATCHES_COMMIT` is set, check that its patches still apply to the new spec, and
+   re-pin it if not (name it `copr/X.Y.Z-fedora-pkg` the same way).
 3. Check whether each file in `fixups/` is still needed (see its header), then run the
    checks below.
 4. Push. COPR rebuilds.
