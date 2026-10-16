@@ -9,7 +9,7 @@ the kernel-ark release, they come from elsewhere, named in `pins.conf` (for 7.2:
 linux-surface (see `pins.conf`).
 
 The packages are named `kernel-surface-cmdrshepardspie` (with `-core`, `-modules` and so on), and their
-release ends in `.cmdrshepardspie` (`uname -r`: `7.2.11-1.cmdrshepardspie.fc43.x86_64`). They install beside
+release contains `.cmdrshepardspie` (`uname -r`: `7.2.11-1.cmdrshepardspie.fc43.x86_64`). They install beside
 linux-surface's own `kernel-surface` packages and never replace or remove them (`PACKAGE_NAME` and
 `RELEASE_SUFFIX` in `pins.conf`; `fixups/0003` drops the packaging lines that would act on linux-surface's
 package, and its default-kernel watchdog; `build-srpm.sh` refuses any packaging patch that still names them).

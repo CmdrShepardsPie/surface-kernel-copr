@@ -168,6 +168,13 @@ for bad in "+Obsoletes: kernel-surface < 6.3.6-1" "+Recommends: %{package_name}-
   run bash "${R}/build-srpm.sh" "${T}/outn"; eq "a packaging patch with '${bad}': refused" 1 "${RC}"; has "...saying why" "adds a line naming linux-surface's" "${OUT}"
   n="$(count "${T}/outn")"; eq "...no source package" 0 "${n}"
 done
+recipe rn3   # ...also when much more follows it (a guard that stops reading early must not pass)
+{ printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,20002 @@\n era-0001\n++Obsoletes: kernel-surface < 7\n'
+  for _ in $(seq 20000); do printf '++filler line to fill the pipe well past its buffer\n'; done; } > "${R}/fixups/0001-pkg.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn3"; eq "...followed by a megabyte of other lines: refused" 1 "${RC}"; has "...saying why" "adds a line naming linux-surface's" "${OUT}"
+recipe rn4   # the secureboot patch is checked too
+printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch b/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n--- a/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n+++ b/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n@@ -1 +1,2 @@\n era-sb\n++Obsoletes: kernel-surface < 7\n' > "${R}/fixups/0001-sb.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn4"; eq "a secureboot patch naming kernel-surface: refused" 1 "${RC}"; has "...saying why" "packaging patch 0001-secureboot.patch adds" "${OUT}"
 recipe rn2; printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,2 @@\n era-0001\n++Conflicts: kernel-surface-test-devel < 1\n' > "${R}/fixups/0001-pkg.patch"
 run bash "${R}/build-srpm.sh" "${T}/outn2"; eq "...but its own kernel-surface-NAME is fine" 0 "${RC}"
 

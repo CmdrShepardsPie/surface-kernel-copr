@@ -25,3 +25,5 @@ build-srpm.sh@@s/^  git -C "${WORK}\/ls" add -A /  : /@@fixups can't change PKG_
 build-srpm.sh@@s/ && "${RELEASE_SUFFIX}" != ".surface" \]\]/ ]]/@@linux-surface's own ".surface" suffix is accepted
 build-srpm.sh@@s/^    die "packaging patch ${f##\*\/} adds a line naming/    : "packaging patch ${f##*\/} adds a line naming/@@a packaging patch that acts on linux-surface's packages or adds the watchdog is built
 build-srpm.sh@@s/^  if grep -E '^\\+' "${f}" | grep -v '^+++ ' | sed "s\/${own}\/\/g"/  if grep -E '^\\+' "${f}" | grep -v '^+++ '/@@the check also refuses this repository's own kernel-surface-NAME
+build-srpm.sh@@s/| grep -E 'kernel-surface|default-watchdog' >\/dev\/null; then/| grep -q -E 'kernel-surface|default-watchdog'; then/@@a forbidden line followed by a lot of text passes (grep -q stops early; SIGPIPE fails the pipe)
+build-srpm.sh@@s/^for f in "${PKG}"\/patches\/\*.patch "${PKG}"\/secureboot\/\*.patch; do/for f in "${PKG}"\/patches\/*.patch; do/@@the secureboot patch isn't checked

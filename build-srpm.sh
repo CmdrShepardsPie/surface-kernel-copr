@@ -101,8 +101,9 @@ done
 # kernel-surface packages (only kernel-surface-NAME, or %{package_name}), or its default-kernel watchdog
 # (see fixups/0003).
 own="kernel-${PACKAGE_NAME}"
-for f in "${PKG}"/patches/*.patch; do
-  if grep -E '^\+' "${f}" | grep -v '^+++ ' | sed "s/${own}//g" | grep -q -E 'kernel-surface|default-watchdog'; then
+# (No `grep -q` at the end: it can stop early, and the SIGPIPE upstream would then fail the pipe.)
+for f in "${PKG}"/patches/*.patch "${PKG}"/secureboot/*.patch; do
+  if grep -E '^\+' "${f}" | grep -v '^+++ ' | sed "s/${own}//g" | grep -E 'kernel-surface|default-watchdog' >/dev/null; then
     die "packaging patch ${f##*/} adds a line naming linux-surface's kernel-surface packages or its watchdog"
   fi
 done
