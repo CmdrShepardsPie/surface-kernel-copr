@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-srpm.sh OUTDIR: build the kernel-surface source package (SRPM) that pins.conf describes, into
+# build-srpm.sh OUTDIR: build the kernel source package (SRPM, kernel-PACKAGE_NAME) that pins.conf describes, into
 # OUTDIR. COPR runs it through .copr/Makefile ("make srpm"); it runs the same way in any Fedora
 # container (see README.md).
 #
@@ -41,7 +41,7 @@ MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
 [[ "${PACKAGE_RELEASE}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_RELEASE must be a positive number"
 # kernel-${PACKAGE_NAME} is the package's name; RELEASE_SUFFIX goes into its release (no "-": rpm forbids it there).
 [[ "${PACKAGE_NAME}" =~ ^surface-[a-z0-9]+$ ]] || die "PACKAGE_NAME must look like surface-NAME (not linux-surface's own \"surface\")"
-[[ "${RELEASE_SUFFIX}" =~ ^\.[a-z0-9]+$ ]] || die "RELEASE_SUFFIX must look like .name"
+[[ "${RELEASE_SUFFIX}" =~ ^\.[a-z0-9]+$ && "${RELEASE_SUFFIX}" != ".surface" ]] || die "RELEASE_SUFFIX must look like .name (not linux-surface's own \".surface\")"
 [[ -n "${ARK_URL}" ]] || die "ARK_URL is empty"
 [[ "${ARK_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "ARK_COMMIT must be the full 40-digit commit hash PACKAGE_TAG points to"
 
@@ -95,6 +95,16 @@ grep -q -x -F "cmd.append(\"DISTLOCALVERSION='${RELEASE_SUFFIX}'\")" "${ark_py}"
 for f in "${HERE}"/fixups/*.patch; do
   echo "== fixup: ${f##*/}"
   git -C "${WORK}/ls" apply --index "${f}" || die "fixup ${f##*/} doesn't apply"
+done
+
+# The packages must never act on linux-surface's own: no packaging patch may add a line naming its
+# kernel-surface packages (only kernel-surface-NAME, or %{package_name}), or its default-kernel watchdog
+# (see fixups/0003).
+own="kernel-${PACKAGE_NAME}"
+for f in "${PKG}"/patches/*.patch; do
+  if grep -E '^\+' "${f}" | grep -v '^+++ ' | sed "s/${own}//g" | grep -q -E 'kernel-surface|default-watchdog'; then
+    die "packaging patch ${f##*/} adds a line naming linux-surface's kernel-surface packages or its watchdog"
+  fi
 done
 
 echo "== kernel-ark: ${PACKAGE_TAG}, v${MAJ}.${MIN}.${PATCH}, linux-${MAJ}.${MIN}.y (history from v${MAJ}.${MIN}.$((PATCH - 1)))"

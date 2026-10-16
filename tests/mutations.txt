@@ -17,8 +17,11 @@ build-srpm.sh@@s/^  \[\[ "\${fedora}" =~ ^\[0-9\]+\$ \]\] || die/  true || die/@
 build-srpm.sh@@s/^DIST="\$(rpmbuild --eval '%{?dist}')"$/DIST="$(rpmbuild --eval '%{?dist}')" || DIST=""/;s/^  fedora="\$(rpmbuild --eval '%{?fedora}')"$/  fedora="$(rpmbuild --eval '%{?fedora}')" || fedora=""/@@a failing rpmbuild is reported as an unknown Fedora release
 build-srpm.sh@@s/=~ ^\[0-9\]+\$ \]\]/=~ [0-9]+ ]]/@@a %fedora that only contains a number (44rc) is accepted
 build-srpm.sh@@s/^\[\[ "${PACKAGE_NAME}" =~ ^surface-\[a-z0-9\]+\$ \]\] || die/true || die/@@linux-surface's own package name (or a malformed one) is accepted
-build-srpm.sh@@s/^\[\[ "${RELEASE_SUFFIX}" =~ ^\\.\[a-z0-9\]+\$ \]\] || die/true || die/@@a release suffix with a "-" (or no dot) is accepted
+build-srpm.sh@@s/^\[\[ "${RELEASE_SUFFIX}" =~ ^\\.\[a-z0-9\]+\$ \&\& /[[ 1 \&\& /@@a release suffix with a "-" (or no dot) is accepted
 build-srpm.sh@@s/^sed -i -E "s\/^PACKAGE_NAME = /: "s\/^PACKAGE_NAME = /@@the package name isn't written
 build-srpm.sh@@s/^sed -i "s\/^cmd\\.append(/: "s\/^cmd\\.append(/@@the release suffix isn't written
 build-srpm.sh@@s/^\[\[ "$(grep -c -x -F "${old_suffix}" "${ark_py}")" == 1 \]\] || die/true || die/@@a changed build-ark.py is reported with the wrong reason
 build-srpm.sh@@s/^  git -C "${WORK}\/ls" add -A /  : /@@fixups can't change PKG_PATCHES' packaging patches
+build-srpm.sh@@s/ && "${RELEASE_SUFFIX}" != ".surface" \]\]/ ]]/@@linux-surface's own ".surface" suffix is accepted
+build-srpm.sh@@s/^    die "packaging patch ${f##\*\/} adds a line naming/    : "packaging patch ${f##*\/} adds a line naming/@@a packaging patch that acts on linux-surface's packages or adds the watchdog is built
+build-srpm.sh@@s/^  if grep -E '^\\+' "${f}" | grep -v '^+++ ' | sed "s\/${own}\/\/g"/  if grep -E '^\\+' "${f}" | grep -v '^+++ '/@@the check also refuses this repository's own kernel-surface-NAME

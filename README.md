@@ -12,7 +12,7 @@ The packages are named `kernel-surface-cmdrshepardspie` (with `-core`, `-modules
 release ends in `.cmdrshepardspie` (`uname -r`: `7.2.11-1.cmdrshepardspie.fc43.x86_64`). They install beside
 linux-surface's own `kernel-surface` packages and never replace or remove them (`PACKAGE_NAME` and
 `RELEASE_SUFFIX` in `pins.conf`; `fixups/0003` drops the packaging lines that would act on linux-surface's
-package, and its default-kernel watchdog).
+package, and its default-kernel watchdog; `build-srpm.sh` refuses any packaging patch that still names them).
 
 These are **not** official linux-surface builds. They exist to run a kernel series that
 linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until it does.
@@ -21,7 +21,7 @@ linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until 
 
 | File | What it is |
 |---|---|
-| `pins.conf` | Everything the build depends on, pinned: the patch repository and its full commit hash, the kernel-ark tag and the full commit hash it must point to, the package release, and (if needed) where the Fedora packaging patches come from. |
+| `pins.conf` | Everything the build depends on, pinned: the patch repository and its full commit hash, the kernel-ark tag and the full commit hash it must point to, the package release, this repository's own package name and release suffix, and (if needed) where the Fedora packaging patches come from. |
 | `build-srpm.sh` | Builds the source package (SRPM) from `pins.conf`. Each step is described at the top of the script. |
 | `.copr/Makefile` | COPR's "make srpm" entry point: installs what `build-srpm.sh` needs, then runs it. |
 | `fixups/*.patch` | Changes the Fedora build needs that the patch repository doesn't carry, applied in name order. Each one says why in its header. |

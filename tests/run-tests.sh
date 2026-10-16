@@ -162,6 +162,15 @@ printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-i
 run bash "${R}/build-srpm.sh" "${T}/out3c"; eq "a fixup to a PKG_PATCHES patch: exit 0" 0 "${RC}"
 s="$(cat "${T}"/out3c/*.src.rpm)"; has "...applied" '^pkg_0001=ours-0001$' "${s}"
 
+echo "== no packaging patch may name linux-surface's packages or its watchdog"
+for bad in "+Obsoletes: kernel-surface < 6.3.6-1" "+Recommends: %{package_name}-default-watchdog" "+Conflicts: kernel-surface-core"; do
+  recipe rn; printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,2 @@\n era-0001\n+%s\n' "${bad}" > "${R}/fixups/0001-pkg.patch"
+  run bash "${R}/build-srpm.sh" "${T}/outn"; eq "a packaging patch with '${bad}': refused" 1 "${RC}"; has "...saying why" "adds a line naming linux-surface's" "${OUT}"
+  n="$(count "${T}/outn")"; eq "...no source package" 0 "${n}"
+done
+recipe rn2; printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,2 @@\n era-0001\n++Conflicts: kernel-surface-test-devel < 1\n' > "${R}/fixups/0001-pkg.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn2"; eq "...but its own kernel-surface-NAME is fine" 0 "${RC}"
+
 echo "== build-ark.py must set DISTLOCALVERSION as expected"
 git -C "${C}" checkout -q "${C1}"; printf '%s\n' "cmd.append(\"DISTLOCALVERSION='.surface'\")" > "${C}/pkg/fedora/kernel-surface/build-ark.py"
 git -C "${C}" commit -q -am ark-py; CA="$(git -C "${C}" rev-parse HEAD)"; git -C "${C}" checkout -q main
@@ -171,7 +180,7 @@ eq "another DISTLOCALVERSION line: refused" 1 "${RC}"; has "...saying why" "does
 echo "== pins are checked before anything is fetched"
 for case in "ARK_COMMIT:${A1:0:12}:full 40-digit commit hash PACKAGE_TAG" "CONTRIB_COMMIT:${C1:0:12}:full 40-digit" "PKG_PATCHES_COMMIT:abc:full commit hash" "PACKAGE_TAG:v6.18.56:look like kernel-" \
             "PACKAGE_TAG:kernel-6.18.0-0:no previous point release" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty" \
-            "PACKAGE_NAME:surface:look like surface-NAME" "PACKAGE_NAME:surface-a-b:look like surface-NAME" "RELEASE_SUFFIX:.a-b:look like .name" "RELEASE_SUFFIX:test:look like .name"; do
+            "PACKAGE_NAME:surface:look like surface-NAME" "PACKAGE_NAME:surface-a-b:look like surface-NAME" "RELEASE_SUFFIX:.a-b:look like .name" "RELEASE_SUFFIX:test:look like .name" "RELEASE_SUFFIX:.surface:look like .name"; do
   IFS=: read -r k v msg <<<"${case}"; recipe rp; pin "${k}" "${v}"
   run bash "${R}/build-srpm.sh" "${T}/outp"; eq "${k}=${v:-''}: refused" 1 "${RC}"; has "...saying why" "${msg}" "${OUT}"
 done
