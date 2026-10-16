@@ -1,0 +1,157 @@
+Fedora-only fix-up, kept here on purpose: this repository builds its own package, kernel-surface-cmdrshepardspie
+(see pins.conf), which installs beside linux-surface's kernel-surface and must never replace or remove it. It
+changes the Fedora packaging patches taken from PKG_PATCHES_COMMIT:
+- 0003: drops "Conflicts:/Obsoletes: kernel-surface < 6.3.6-1". Under the new name those lines would act on
+  linux-surface's own package (old versions only, but an Obsoletes of another project's package is never ours
+  to ship). Its other lines name %{package_name}, which is now this repository's own name, so they stay.
+- 0004: dropped. Its kernel-surface-cmdrshepardspie-default-watchdog would install the same files as
+  linux-surface's kernel-surface-default-watchdog (so the two can't both be installed), and the kernel
+  Recommends it, so dnf pulls it in. It makes each newly installed Surface kernel the default; these kernels
+  carry only Red Hat's test signature until they are signed on the machine, so with Secure Boot on that makes
+  an unbootable kernel the default. Without it, Fedora's own rules (UPDATEDEFAULT in /etc/sysconfig/kernel)
+  decide.
+- 0005: the same Recommends: intel-vsc-firmware line, with 0004's line gone from its context.
+---
+diff --git a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
+index ae8b1df..d8ce073 100644
+--- a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
++++ b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
+@@ -13,17 +13,6 @@ diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+ index d92ef1a8d86a..c5748edf9301 100644
+ --- a/redhat/kernel.spec.template
+ +++ b/redhat/kernel.spec.template
+-@@ -785,6 +785,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
+- Suggests: %{name}-core = %{specversion}-%{release}
+- Provides: installonlypkg(kernel)
+- Provides: kernel = %{KVERREL}
+-+
+-+Conflicts: kernel-surface < 6.3.6-1
+-+Obsoletes: kernel-surface < 6.3.6-1
+-+
+- %endif
+- 
+- 
+ @@ -1619,6 +1623,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
+diff --git a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch b/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
+deleted file mode 100644
+index 11505dc..0000000
+--- a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
++++ /dev/null
+@@ -1,96 +0,0 @@
+-From 9b58106e19b6de4e9acf3c65f13e5b23083a59f4 Mon Sep 17 00:00:00 2001
+-From: Dorian Stoll <dorian.stoll@tmsp.io>
+-Date: Tue, 30 Sep 2025 20:12:29 +0200
+-Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
+- kernel the default
+-
+-Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+----
+- redhat/kernel.spec.template | 36 ++++++++++++++++++++++++++++++++++++
+- 1 file changed, 36 insertions(+)
+-
+-diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+-index c5748edf9301..f26b37b3354d 100644
+---- a/redhat/kernel.spec.template
+-+++ b/redhat/kernel.spec.template
+-@@ -1221,6 +1221,11 @@ Source4000: README.rst
+- Source4001: rpminspect.yaml
+- Source4002: gating.yaml
+- 
+-+Source4100: linux-surface-default-watchdog.path
+-+Source4101: linux-surface-default-watchdog.service
+-+Source4102: linux-surface-default-watchdog.py
+-+Source4103: 90-linux-surface-default-watchdog.preset
+-+
+- ## Patches needed for building this package
+- 
+- %if !%{nopatches}
+-@@ -1263,6 +1268,7 @@ Requires(pre): %{initrd_prereq}\
+- Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
+- Recommends: linux-firmware\
+- Recommends: iptsd\
+-+Recommends: %{package_name}-default-watchdog\
+- Requires(preun): systemd >= 200\
+- Conflicts: xfsprogs < 4.3.0-1\
+- Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
+-@@ -1277,6 +1283,13 @@ AutoProv: yes\
+- %{nil}
+- 
+- 
+-+%package default-watchdog
+-+Summary: Watchdog service ensuring that the surface kernel stays the default kernel.
+-+%description default-watchdog
+-+This package provides a systemd service that will automatically keep
+-+the surface kernel as the default kernel in GRUB, even if a newer stock
+-+kernel has been installed.
+-+
+- %package doc
+- Summary: Various documentation bits found in the kernel source
+- Group: Documentation
+-@@ -3688,6 +3701,14 @@ find Documentation -type d | xargs chmod u+w
+- 
+- cd linux-%{KVERREL}
+- 
+-+install -D -m644 "%{SOURCE4100}" -t "%{buildroot}%{_unitdir}"
+-+install -D -m644 "%{SOURCE4101}" -t "%{buildroot}%{_unitdir}"
+-+install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
+-+install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
+-+
+-+# Edit to replace chars @BUILDID@ with value of buildid; the actual value used to assemble the kernel filename.
+-+sed -i "s/@BUILDID@/%{buildid}/" "%{buildroot}%{_bindir}/linux-surface-default-watchdog.py"
+-+
+- # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
+- RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
+- 
+-@@ -4111,6 +4132,15 @@ popd
+- ### scripts
+- ###
+- 
+-+%post default-watchdog
+-+%systemd_post linux-surface-default-watchdog.path
+-+
+-+%preun default-watchdog
+-+%systemd_preun linux-surface-default-watchdog.path
+-+
+-+%postun default-watchdog
+-+%systemd_postun_with_restart linux-surface-default-watchdog.path
+-+
+- %if %{with_tools}
+- %post -n %{name}-tools-libs
+- /sbin/ldconfig
+-@@ -4811,6 +4841,12 @@ fi\
+- %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
+- %endif
+- 
+-+%files default-watchdog
+-+%{_bindir}/linux-surface-default-watchdog.py
+-+%{_unitdir}/linux-surface-default-watchdog.path
+-+%{_unitdir}/linux-surface-default-watchdog.service
+-+%{_presetdir}/90-linux-surface-default-watchdog.preset
+-+
+- # empty meta-package
+- %if %{with_stock_base}
+- %ifnarch noarch %{nobuildarches}
+--- 
+-2.53.0
+-
+diff --git a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
+index d89dec8..4987a75 100644
+--- a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
++++ b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
+@@ -12,13 +12,12 @@ diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+ index f26b37b3354d..14a3f28bf01f 100644
+ --- a/redhat/kernel.spec.template
+ +++ b/redhat/kernel.spec.template
+-@@ -1267,6 +1267,7 @@ Requires(pre): %{kernel_prereq}\
++@@ -1262,5 +1262,6 @@ Requires(pre): %{kernel_prereq}\
+  Requires(pre): %{initrd_prereq}\
+  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
+  Recommends: linux-firmware\
+ +Recommends: intel-vsc-firmware\
+  Recommends: iptsd\
+- Recommends: %{package_name}-default-watchdog\
+  Requires(preun): systemd >= 200\
+ -- 
+ 2.53.0

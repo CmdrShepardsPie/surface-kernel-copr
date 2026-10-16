@@ -8,6 +8,12 @@ the kernel-ark release, they come from elsewhere, named in `pins.conf` (for 7.2:
 `f44-7.2.10-0` branch). For 7.2, the pinned patches also carry fixes and backports not yet in
 linux-surface (see `pins.conf`).
 
+The packages are named `kernel-surface-cmdrshepardspie` (with `-core`, `-modules` and so on), and their
+release ends in `.cmdrshepardspie` (`uname -r`: `7.2.11-1.cmdrshepardspie.fc43.x86_64`). They install beside
+linux-surface's own `kernel-surface` packages and never replace or remove them (`PACKAGE_NAME` and
+`RELEASE_SUFFIX` in `pins.conf`; `fixups/0003` drops the packaging lines that would act on linux-surface's
+package, and its default-kernel watchdog).
+
 These are **not** official linux-surface builds. They exist to run a kernel series that
 linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until it does.
 
