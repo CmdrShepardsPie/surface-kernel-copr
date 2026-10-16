@@ -48,21 +48,28 @@ C="${T}/contrib"; mkdir -p "${C}/pkg/fedora/kernel-surface/patches" "${C}/pkg/fe
 cat > "${C}/pkg/fedora/kernel-surface/build-linux-surface.py" <<'PY'
 #!/usr/bin/env python3
 import argparse, os, pathlib, subprocess
+PACKAGE_NAME = "surface"
 PACKAGE_TAG = "kernel-6.19.8-0"
 PACKAGE_RELEASE = "3"
 p = argparse.ArgumentParser(); p.add_argument("--mode"); p.add_argument("--ark-dir"); p.add_argument("--outdir")
 a = p.parse_args()
 here = pathlib.Path(__file__).resolve().parent
 ver = PACKAGE_TAG.split("-")[1]
+# The release suffix, as the real build-ark.py's DISTLOCALVERSION line gives it.
+suffix = next(l for l in (here / "build-ark.py").read_text().splitlines() if "DISTLOCALVERSION" in l)
+suffix = "." + PACKAGE_NAME if "% args.package_name" in suffix else suffix.split("'")[1]
 subprocess.run(["git", "-C", a.ark_dir, "checkout", "-q", PACKAGE_TAG], check=True)   # as build-ark.py does
 head = subprocess.run(["git", "-C", a.ark_dir, "describe", "--tags", "--exact-match", "HEAD"], capture_output=True, text=True).stdout.strip()
-log = [f"mode={a.mode}", f"tag={PACKAGE_TAG}", f"release={PACKAGE_RELEASE}", f"ark_head={head}", "dist=" + os.environ.get("DIST", ""),
+log = [f"mode={a.mode}", f"name={PACKAGE_NAME}", f"suffix={suffix}", f"tag={PACKAGE_TAG}", f"release={PACKAGE_RELEASE}", f"ark_head={head}", "dist=" + os.environ.get("DIST", ""),
        "pkg_patches=" + ",".join(sorted(x.name for x in (here / "patches").glob("*.patch"))),
+       "pkg_0001=" + "".join(x.read_text().strip() for x in (here / "patches").glob("0001-*.patch")),
        "sb=" + (here / "secureboot" / "0001-secureboot.patch").read_text().strip(),
        "cam=" + (here / ".." / ".." / ".." / "patches" / "6.18" / "0013-cameras.patch").read_text().strip()]
 out = pathlib.Path(a.outdir); out.mkdir(parents=True, exist_ok=True)
-(out / f"kernel-surface-{ver}-{PACKAGE_RELEASE}.surface.fc44.src.rpm").write_text("\n".join(log) + "\n")
+(out / f"kernel-{PACKAGE_NAME}-{ver}-{PACKAGE_RELEASE}{suffix}.fc44.src.rpm").write_text("\n".join(log) + "\n")
 PY
+# build-ark.py: only the line build-srpm.sh rewrites (the stand-in above reads it).
+printf '%s\n' "cmd.append(\"DISTLOCALVERSION='.%s'\" % args.package_name)" > "${C}/pkg/fedora/kernel-surface/build-ark.py"
 echo fork-0001 > "${C}/pkg/fedora/kernel-surface/patches/0001-fork.patch"
 echo fork-sb > "${C}/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch"
 echo vanilla-cameras > "${C}/patches/6.18/0013-cameras.patch"
@@ -95,6 +102,8 @@ ARK_URL="file://${A}"
 PACKAGE_TAG="kernel-6.18.56-0"
 ARK_COMMIT="${A1}"
 PACKAGE_RELEASE="1"
+PACKAGE_NAME="surface-test"
+RELEASE_SUFFIX=".test"
 PKG_PATCHES_URL="file://${P}"
 PKG_PATCHES_COMMIT="${P1}"
 EOF
@@ -107,7 +116,8 @@ recipe r1; run bash "${R}/build-srpm.sh" "${T}/out1"; [[ "${RC}" -eq 0 ]] || pri
 eq "exit 0" 0 "${RC}"
 srpms=("${T}"/out1/*.src.rpm); eq "one source package" 1 "${#srpms[@]}"
 s="$(cat "${srpms[0]}")"
-eq "...named for the pinned kernel and release" "kernel-surface-6.18.56-1.surface.fc44.src.rpm" "${srpms[0]##*/}"
+eq "...named for the package name, kernel, release and suffix" "kernel-surface-test-6.18.56-1.test.fc44.src.rpm" "${srpms[0]##*/}"
+has "PACKAGE_NAME written" '^name=surface-test$' "${s}"; has "RELEASE_SUFFIX written into build-ark.py" '^suffix=.test$' "${s}"
 has "srpm mode" '^mode=srpm$' "${s}"; has "PACKAGE_TAG written" '^tag=kernel-6.18.56-0$' "${s}"; has "PACKAGE_RELEASE written" '^release=1$' "${s}"
 has "kernel-ark checked out at the tag" '^ark_head=kernel-6.18.56-0$' "${s}"
 has "the PKG_PATCHES_COMMIT packaging patches replace CONTRIB's" '^pkg_patches=0001-iptsd.patch,0002-name.patch$' "${s}"
@@ -147,10 +157,37 @@ s="$(cat "${T}"/out3/*.src.rpm)"; has "...applied" '^cam=fedora-cameras$' "${s}"
 printf -- '--- a/nope\n+++ b/nope\n@@ -1 +1 @@\n-x\n+y\n' > "${R}/fixups/0002-stale.patch"
 run bash "${R}/build-srpm.sh" "${T}/out3b"; eq "a fixup that doesn't apply: exit 1" 1 "${RC}"; has "...naming it" "fixup 0002-stale.patch doesn't apply" "${OUT}"
 n="$(count "${T}/out3b")"; eq "...no source package" 0 "${n}"
+recipe r3c   # a fixup can change the packaging patches that PKG_PATCHES_COMMIT supplied
+printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1 @@\n-era-0001\n+ours-0001\n' > "${R}/fixups/0001-pkg.patch"
+run bash "${R}/build-srpm.sh" "${T}/out3c"; eq "a fixup to a PKG_PATCHES patch: exit 0" 0 "${RC}"
+s="$(cat "${T}"/out3c/*.src.rpm)"; has "...applied" '^pkg_0001=ours-0001$' "${s}"
+
+echo "== no packaging patch may name linux-surface's packages or its watchdog"
+for bad in "+Obsoletes: kernel-surface < 6.3.6-1" "+Recommends: %{package_name}-default-watchdog" "+Conflicts: kernel-surface-core"; do
+  recipe rn; printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,2 @@\n era-0001\n+%s\n' "${bad}" > "${R}/fixups/0001-pkg.patch"
+  run bash "${R}/build-srpm.sh" "${T}/outn"; eq "a packaging patch with '${bad}': refused" 1 "${RC}"; has "...saying why" "adds a line naming linux-surface's" "${OUT}"
+  n="$(count "${T}/outn")"; eq "...no source package" 0 "${n}"
+done
+recipe rn3   # ...also when much more follows it (a guard that stops reading early must not pass)
+{ printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,20002 @@\n era-0001\n++Obsoletes: kernel-surface < 7\n'
+  for _ in $(seq 20000); do printf '++filler line to fill the pipe well past its buffer\n'; done; } > "${R}/fixups/0001-pkg.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn3"; eq "...followed by a megabyte of other lines: refused" 1 "${RC}"; has "...saying why" "adds a line naming linux-surface's" "${OUT}"
+recipe rn4   # the secureboot patch is checked too
+printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch b/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n--- a/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n+++ b/pkg/fedora/kernel-surface/secureboot/0001-secureboot.patch\n@@ -1 +1,2 @@\n era-sb\n++Obsoletes: kernel-surface < 7\n' > "${R}/fixups/0001-sb.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn4"; eq "a secureboot patch naming kernel-surface: refused" 1 "${RC}"; has "...saying why" "packaging patch 0001-secureboot.patch adds" "${OUT}"
+recipe rn2; printf 'Why: a test.\n---\ndiff --git a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n--- a/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n+++ b/pkg/fedora/kernel-surface/patches/0001-iptsd.patch\n@@ -1 +1,2 @@\n era-0001\n++Conflicts: kernel-surface-test-devel < 1\n' > "${R}/fixups/0001-pkg.patch"
+run bash "${R}/build-srpm.sh" "${T}/outn2"; eq "...but its own kernel-surface-NAME is fine" 0 "${RC}"
+
+echo "== build-ark.py must set DISTLOCALVERSION as expected"
+git -C "${C}" checkout -q "${C1}"; printf '%s\n' "cmd.append(\"DISTLOCALVERSION='.surface'\")" > "${C}/pkg/fedora/kernel-surface/build-ark.py"
+git -C "${C}" commit -q -am ark-py; CA="$(git -C "${C}" rev-parse HEAD)"; git -C "${C}" checkout -q main
+recipe rx; pin CONTRIB_COMMIT "${CA}"; run bash "${R}/build-srpm.sh" "${T}/outx"
+eq "another DISTLOCALVERSION line: refused" 1 "${RC}"; has "...saying why" "doesn't set DISTLOCALVERSION from the package name" "${OUT}"; n="$(count "${T}/outx")"; eq "...no source package" 0 "${n}"
 
 echo "== pins are checked before anything is fetched"
 for case in "ARK_COMMIT:${A1:0:12}:full 40-digit commit hash PACKAGE_TAG" "CONTRIB_COMMIT:${C1:0:12}:full 40-digit" "PKG_PATCHES_COMMIT:abc:full commit hash" "PACKAGE_TAG:v6.18.56:look like kernel-" \
-            "PACKAGE_TAG:kernel-6.18.0-0:no previous point release" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty"; do
+            "PACKAGE_TAG:kernel-6.18.0-0:no previous point release" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty" \
+            "PACKAGE_NAME:surface:look like surface-NAME" "PACKAGE_NAME:surface-a-b:look like surface-NAME" "RELEASE_SUFFIX:.a-b:look like .name" "RELEASE_SUFFIX:test:look like .name" "RELEASE_SUFFIX:.surface:look like .name"; do
   IFS=: read -r k v msg <<<"${case}"; recipe rp; pin "${k}" "${v}"
   run bash "${R}/build-srpm.sh" "${T}/outp"; eq "${k}=${v:-''}: refused" 1 "${RC}"; has "...saying why" "${msg}" "${OUT}"
 done
@@ -181,7 +218,7 @@ has "...saying so" "points to [0-9a-f]*, not the pinned ${A1}" "${OUT}"; n="$(co
 git -C "${A}" tag -f kernel-6.18.56-0 "${A1}" >/dev/null
 
 echo "== more than one source package is an error"
-recipe rm2; sed -i 's|^(out / f"kernel-surface|(out / "extra.src.rpm").write_text("x")\n(out / f"kernel-surface|' "${C}/pkg/fedora/kernel-surface/build-linux-surface.py"
+recipe rm2; sed -i 's|^(out / f"kernel-|(out / "extra.src.rpm").write_text("x")\n(out / f"kernel-|' "${C}/pkg/fedora/kernel-surface/build-linux-surface.py"
 git -C "${C}" commit -q -am two; C2="$(git -C "${C}" rev-parse HEAD)"; pin CONTRIB_COMMIT "${C2}"
 run bash "${R}/build-srpm.sh" "${T}/outm"; eq "two source packages: refused" 1 "${RC}"; has "...saying so" "expected one source package, got 2" "${OUT}"
 

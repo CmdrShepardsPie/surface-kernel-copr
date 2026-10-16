@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-srpm.sh OUTDIR: build the kernel-surface source package (SRPM) that pins.conf describes, into
+# build-srpm.sh OUTDIR: build the kernel source package (SRPM, kernel-PACKAGE_NAME) that pins.conf describes, into
 # OUTDIR. COPR runs it through .copr/Makefile ("make srpm"); it runs the same way in any Fedora
 # container (see README.md).
 #
@@ -8,7 +8,9 @@
 #      (fetched by hash, and checked to be that commit);
 #   2. optionally, the Fedora packaging patches from PKG_PATCHES_URL at PKG_PATCHES_COMMIT, when
 #      CONTRIB's don't fit this kernel's spec;
-#   3. PACKAGE_TAG and PACKAGE_RELEASE written into build-linux-surface.py;
+#   3. PACKAGE_TAG and PACKAGE_RELEASE written into build-linux-surface.py, and this repository's own
+#      package name (PACKAGE_NAME) and release suffix (RELEASE_SUFFIX) into it and build-ark.py, so the
+#      packages never carry linux-surface's names;
 #   4. fixups/*.patch (if any) applied to that tree with `git apply`, in name order (for a change the
 #      Fedora build needs and the patch repository doesn't carry; each says why in its header);
 #   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
@@ -28,7 +30,7 @@ die() { echo "build-srpm.sh: error: $*" >&2; exit 1; }
 mkdir -p "$1"; OUTDIR="$(cd "$1" && pwd)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PKG_PATCHES_URL="" PKG_PATCHES_COMMIT="" ARK_URL="" ARK_COMMIT=""
+CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PACKAGE_NAME="" RELEASE_SUFFIX="" PKG_PATCHES_URL="" PKG_PATCHES_COMMIT="" ARK_URL="" ARK_COMMIT=""
 # shellcheck source=pins.conf
 . "${HERE}/pins.conf"
 [[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "CONTRIB_COMMIT must be a full 40-digit commit hash"
@@ -37,6 +39,9 @@ CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PKG_PATCHES_U
 MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
 [[ "${PATCH}" -ge 1 ]] || die "PACKAGE_TAG: a .0 release has no previous point release to cut the history at"
 [[ "${PACKAGE_RELEASE}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_RELEASE must be a positive number"
+# kernel-${PACKAGE_NAME} is the package's name; RELEASE_SUFFIX goes into its release (no "-": rpm forbids it there).
+[[ "${PACKAGE_NAME}" =~ ^surface-[a-z0-9]+$ ]] || die "PACKAGE_NAME must look like surface-NAME (not linux-surface's own \"surface\")"
+[[ "${RELEASE_SUFFIX}" =~ ^\.[a-z0-9]+$ && "${RELEASE_SUFFIX}" != ".surface" ]] || die "RELEASE_SUFFIX must look like .name (not linux-surface's own \".surface\")"
 [[ -n "${ARK_URL}" ]] || die "ARK_URL is empty"
 [[ "${ARK_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "ARK_COMMIT must be the full 40-digit commit hash PACKAGE_TAG points to"
 
@@ -67,6 +72,8 @@ if [[ -n "${PKG_PATCHES_COMMIT}" ]]; then
   rm -f "${PKG}"/patches/*.patch
   cp "${files[@]}" "${PKG}/patches/"
   cp "${src}/secureboot/0001-secureboot.patch" "${PKG}/secureboot/"
+  # Stage the swap, so the fixups below can change these patches too (`git apply --index`).
+  git -C "${WORK}/ls" add -A "${PKG}/patches" "${PKG}/secureboot"
 fi
 
 echo "== ${PACKAGE_TAG}, release ${PACKAGE_RELEASE}"
@@ -75,10 +82,30 @@ sed -i -E "s/^PACKAGE_TAG = \".*\"$/PACKAGE_TAG = \"${PACKAGE_TAG}\"/; s/^PACKAG
 if ! grep -q -x "PACKAGE_TAG = \"${PACKAGE_TAG}\"" "${py}" || ! grep -q -x "PACKAGE_RELEASE = \"${PACKAGE_RELEASE}\"" "${py}"; then
   die "couldn't set PACKAGE_TAG/PACKAGE_RELEASE in build-linux-surface.py (its format changed?)"
 fi
+echo "== package kernel-${PACKAGE_NAME}, release suffix ${RELEASE_SUFFIX}"
+sed -i -E "s/^PACKAGE_NAME = \".*\"$/PACKAGE_NAME = \"${PACKAGE_NAME}\"/" "${py}"
+grep -q -x "PACKAGE_NAME = \"${PACKAGE_NAME}\"" "${py}" || die "couldn't set PACKAGE_NAME in build-linux-surface.py (its format changed?)"
+# build-ark.py makes the suffix from the package name (".surface"); this one has its own.
+ark_py="${PKG}/build-ark.py"
+old_suffix="cmd.append(\"DISTLOCALVERSION='.%s'\" % args.package_name)"
+[[ "$(grep -c -x -F "${old_suffix}" "${ark_py}")" == 1 ]] || die "build-ark.py doesn't set DISTLOCALVERSION from the package name as expected (its format changed?)"
+sed -i "s/^cmd\.append(\"DISTLOCALVERSION='\.%s'\" % args\.package_name)$/cmd.append(\"DISTLOCALVERSION='${RELEASE_SUFFIX}'\")/" "${ark_py}"
+grep -q -x -F "cmd.append(\"DISTLOCALVERSION='${RELEASE_SUFFIX}'\")" "${ark_py}" || die "couldn't set DISTLOCALVERSION in build-ark.py"
 
 for f in "${HERE}"/fixups/*.patch; do
   echo "== fixup: ${f##*/}"
   git -C "${WORK}/ls" apply --index "${f}" || die "fixup ${f##*/} doesn't apply"
+done
+
+# The packages must never act on linux-surface's own: no packaging patch may add a line naming its
+# kernel-surface packages (only kernel-surface-NAME, or %{package_name}), or its default-kernel watchdog
+# (see fixups/0003).
+own="kernel-${PACKAGE_NAME}"
+# (No `grep -q` at the end: it can stop early, and the SIGPIPE upstream would then fail the pipe.)
+for f in "${PKG}"/patches/*.patch "${PKG}"/secureboot/*.patch; do
+  if grep -E '^\+' "${f}" | grep -v '^+++ ' | sed "s/${own}//g" | grep -E 'kernel-surface|default-watchdog' >/dev/null; then
+    die "packaging patch ${f##*/} adds a line naming linux-surface's kernel-surface packages or its watchdog"
+  fi
 done
 
 echo "== kernel-ark: ${PACKAGE_TAG}, v${MAJ}.${MIN}.${PATCH}, linux-${MAJ}.${MIN}.y (history from v${MAJ}.${MIN}.$((PATCH - 1)))"
