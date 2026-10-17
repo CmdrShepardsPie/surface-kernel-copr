@@ -24,7 +24,7 @@ linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until 
 | `pins.conf` | Everything the build depends on, pinned: the patch repository and its full commit hash, the kernel-ark tag and the full commit hash it must point to, the package release, this repository's own package name and release suffix, and (if needed) where the Fedora packaging patches come from. |
 | `build-srpm.sh` | Builds the source package (SRPM) from `pins.conf`. Each step is described at the top of the script. |
 | `.copr/Makefile` | COPR's "make srpm" entry point: installs what `build-srpm.sh` needs, then runs it. |
-| `fixups/*.patch` | Changes applied to the patch repository's tree before the build, in name order: changes the Fedora build needs, and fixes the patch repository doesn't carry yet (`fixups/0004`, the Surface Pro 9 mic gain). Each one says why, and when to drop it, in its header. |
+| `fixups/*.patch` | Changes applied to the patch repository's tree before the build, in name order: changes the Fedora build needs, and fixes the patch repository doesn't carry yet (`fixups/0004`, the Surface Pro 9 mic gain). Each one says why in its header, and, where it's temporary, when to drop it. |
 | `tests/run-tests.sh`, `tests/mutations.txt` | Hermetic tests of `build-srpm.sh` and `.copr/Makefile` against local stand-in repositories (no network), and the mutations they must catch (`FILE@@SED-EXPRESSION@@WHAT IT BREAKS`). |
 
 ## How it's built
