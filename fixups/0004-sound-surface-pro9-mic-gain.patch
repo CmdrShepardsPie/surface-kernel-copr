@@ -1,0 +1,120 @@
+Carried here until linux-surface or the stable kernel has it: "ALSA: hda/realtek: Limit internal mic gain
+on Microsoft Surface Pro 9", added to the series as patches/7.2/0016-sound.patch. On the Surface Pro 9 an
+unsaved mic source starts at Capture +30 dB plus Mic Boost +30 dB and clips; the patch removes Mic Boost and
+caps every ADC at +18 dB, on that machine only (codec SSID 10ec:1284 and a DMI check). It is ours (written
+for the owner; not yet signed off or sent upstream) and was tested on the Pro 9 on 7.2.11 as an out-of-tree
+module (claude-coordination #97). It applies unchanged to kernel-ark's kernel-7.2.11-0 alc269.c, which is
+identical to v7.2.11's. Drop this when the kernel-ark tag already has the quirk (grep alc269.c for
+ALC274_FIXUP_SURFACE_PRO9_MIC).
+---
+diff --git a/patches/7.2/0016-sound.patch b/patches/7.2/0016-sound.patch
+new file mode 100644
+index 0000000..39647b8
+--- /dev/null
++++ b/patches/7.2/0016-sound.patch
+@@ -0,0 +1,105 @@
++From a5fddbb1a61f2aec21cf238e273b92679a08e2e3 Mon Sep 17 00:00:00 2001
++From: Chris Simpson <chris@nilk.net>
++Date: Sat, 17 Oct 2026 06:51:10 +0000
++Subject: [PATCH] ALSA: hda/realtek: Limit internal mic gain on Microsoft
++ Surface Pro 9
++
++The Surface Pro 9 internal mic (ALC274, pin 0x12) has a Mic Boost of
++up to +30 dB on top of a Capture volume of up to +30 dB.  User space
++that has no saved level for the source starts both at the maximum,
+++60 dB, where 37% of the samples clip.  Measured on the device, the
++mic is clean at +18 dB, while +30 dB with no boost already reaches
++0 dBFS on normal room audio.
++
++Remove the Mic Boost control and limit every ADC to +18 dB, so that
++the default 100% source volume is a usable level.
++
++The PCI SSID (8086:7270) and codec SSID (10ec:1284) are Intel and
++Realtek defaults, so the quirk is matched by the codec SSID and the
++fixup checks the DMI vendor and product name before changing anything.
++
++Assisted-by: LLM
++---
++ sound/hda/codecs/realtek/alc269.c | 45 +++++++++++++++++++++++++++++++
++ 1 file changed, 45 insertions(+)
++
++diff --git a/sound/hda/codecs/realtek/alc269.c b/sound/hda/codecs/realtek/alc269.c
++index e98cc42e1..874269c70 100644
++--- a/sound/hda/codecs/realtek/alc269.c
+++++ b/sound/hda/codecs/realtek/alc269.c
++@@ -3873,6 +3873,45 @@ static void alc288_fixup_surface_swap_dacs(struct hda_codec *codec,
++ 	spec->gen.preferred_dacs = preferred_pairs;
++ }
++ 
+++/*
+++ * The Surface Pro 9 internal mic clips badly when the Capture and Mic Boost
+++ * volumes are both at max (+60 dB), which is where an unconfigured user space
+++ * starts them.  Remove the boost and limit every ADC to +18 dB.  The SSIDs
+++ * are Intel and Realtek defaults, so match the machine by DMI as well.
+++ */
+++static void alc274_fixup_surface_pro9_mic(struct hda_codec *codec,
+++					  const struct hda_fixup *fix, int action)
+++{
+++	unsigned int caps, nsteps, ofs, step, max;
+++	hda_nid_t nid;
+++
+++	if (action != HDA_FIXUP_ACT_PRE_PROBE)
+++		return;
+++
+++	if (!dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") ||
+++	    !dmi_match(DMI_PRODUCT_NAME, "Surface Pro 9"))
+++		return;
+++
+++	snd_hda_override_amp_caps(codec, 0x12, HDA_INPUT, 0);
+++
+++	for_each_hda_codec_node(nid, codec) {
+++		if (get_wcaps_type(get_wcaps(codec, nid)) != AC_WID_AUD_IN ||
+++		    !(get_wcaps(codec, nid) & AC_WCAP_IN_AMP))
+++			continue;
+++		caps = query_amp_caps(codec, nid, HDA_INPUT);
+++		nsteps = (caps & AC_AMPCAP_NUM_STEPS) >> AC_AMPCAP_NUM_STEPS_SHIFT;
+++		ofs = (caps & AC_AMPCAP_OFFSET) >> AC_AMPCAP_OFFSET_SHIFT;
+++		step = (caps & AC_AMPCAP_STEP_SIZE) >> AC_AMPCAP_STEP_SIZE_SHIFT;
+++		/* the step size is in 0.25 dB units, minus one */
+++		max = ofs + 18 * 4 / (step + 1);
+++		if (nsteps <= max)
+++			continue;
+++		caps &= ~AC_AMPCAP_NUM_STEPS;
+++		caps |= max << AC_AMPCAP_NUM_STEPS_SHIFT;
+++		snd_hda_override_amp_caps(codec, nid, HDA_INPUT, caps);
+++	}
+++}
+++
++ static void alc274_fixup_hp_89e9_amp(struct hda_codec *codec,
++ 				     const struct hda_fixup *fix, int action)
++ {
++@@ -4237,6 +4276,7 @@ enum {
++ 	ALC236_FIXUP_DELL_HP_POP_NOISE,
++ 	ALC274_FIXUP_HP_89E9_GPIO,
++ 	ALC274_FIXUP_HP_VERBS,
+++	ALC274_FIXUP_SURFACE_PRO9_MIC,
++ };
++ 
++ /* A special fixup for Lenovo C940 and Yoga Duet 7;
++@@ -6916,6 +6956,10 @@ static const struct hda_fixup alc269_fixups[] = {
++ 		.chained = true,
++ 		.chain_id = ALC274_FIXUP_HP_89E9_GPIO,
++ 	},
+++	[ALC274_FIXUP_SURFACE_PRO9_MIC] = {
+++		.type = HDA_FIXUP_FUNC,
+++		.v.func = alc274_fixup_surface_pro9_mic,
+++	},
++ };
++ 
++ static const struct hda_quirk alc269_fixup_tbl[] = {
++@@ -7714,6 +7758,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
++ 	SND_PCI_QUIRK(0x10ec, 0x124c, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
++ 	SND_PCI_QUIRK(0x10ec, 0x1252, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
++ 	SND_PCI_QUIRK(0x10ec, 0x1254, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
+++	SND_PCI_QUIRK(0x10ec, 0x1284, "Microsoft Surface Pro 9", ALC274_FIXUP_SURFACE_PRO9_MIC),
++ 	SND_PCI_QUIRK(0x10ec, 0x12cc, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
++ 	SND_PCI_QUIRK(0x10ec, 0x12f6, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
++ 	SND_PCI_QUIRK(0x10f7, 0x8338, "Panasonic CF-SZ6", ALC269_FIXUP_ASPIRE_HEADSET_MIC),
++-- 
++2.43.0
++
