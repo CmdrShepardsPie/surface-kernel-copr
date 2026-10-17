@@ -12,7 +12,7 @@
 #      package name (PACKAGE_NAME) and release suffix (RELEASE_SUFFIX) into it and build-ark.py, so the
 #      packages never carry linux-surface's names;
 #   4. fixups/*.patch (if any) applied to that tree with `git apply`, in name order (for a change the
-#      Fedora build needs and the patch repository doesn't carry; each says why in its header);
+#      Fedora build needs, or a fix not yet in the patch repository; each says why in its header);
 #   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
 #      kernel-ark's Makefile needs: the tag, vX.Y.Z, and the linux-X.Y.y branch, back to the previous
 #      point release;
