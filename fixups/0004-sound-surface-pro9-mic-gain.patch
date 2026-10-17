@@ -2,10 +2,10 @@ Carried here until linux-surface or the stable kernel has it: "ALSA: hda/realtek
 on Microsoft Surface Pro 9", added to the series as patches/7.2/0016-sound.patch. On the Surface Pro 9 an
 unsaved mic source starts at Capture +30 dB plus Mic Boost +30 dB and clips; the patch removes Mic Boost and
 caps every ADC at +18 dB, on that machine only (its own quirk table, picked only when the DMI says Microsoft
-Corporation / Surface Pro 9). It is ours (written for the owner; not yet signed off or sent upstream). An
-earlier version with the same effect on the Pro 9 (the DMI check inside the fixup) was tested on the Pro 9
-on 7.2.11 as an out-of-tree module: Mic Boost gone, Capture 0 to 47 (+18 dB), no clipping on speech; this
-version, which changes only how the quirk is matched, is not yet re-tested. It applies unchanged to
+Corporation / Surface Pro 9). It is ours (written for the owner; not yet signed off or sent upstream). This
+version was tested on the Pro 9 on 7.2.11 as an out-of-tree module: the fixup is picked for codec SSID
+10ec:1284, Mic Boost gone, Capture 0 to 47 (+18 dB), source at 1.00, held over a PipeWire restart, no
+clipping. It applies unchanged to
 kernel-ark's kernel-7.2.11-0 alc269.c, which is identical to v7.2.11's. Drop this when the kernel-ark tag
 already has the quirk (grep alc269.c for ALC274_FIXUP_SURFACE_PRO9_MIC or "Surface Pro 9").
 ---
