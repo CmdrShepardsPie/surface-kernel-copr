@@ -3,19 +3,20 @@ on Microsoft Surface Pro 9", added to the series as patches/7.2/0016-sound.patch
 unsaved mic source starts at Capture +30 dB plus Mic Boost +30 dB and clips; the patch removes Mic Boost and
 caps every ADC at +18 dB, on that machine only (codec SSID 10ec:1284 and a DMI check). It is ours (written
 for the owner; not yet signed off or sent upstream) and was tested on the Pro 9 on 7.2.11 as an out-of-tree
-module (claude-coordination #97). It applies unchanged to kernel-ark's kernel-7.2.11-0 alc269.c, which is
+module (claude-coordination #97; v3 moves the DMI check into alc269_probe(), so other machines with
+these SSIDs keep their own fixups). It applies unchanged to kernel-ark's kernel-7.2.11-0 alc269.c, which is
 identical to v7.2.11's. Drop this when the kernel-ark tag already has the quirk (grep alc269.c for
 ALC274_FIXUP_SURFACE_PRO9_MIC).
 ---
 diff --git a/patches/7.2/0016-sound.patch b/patches/7.2/0016-sound.patch
 new file mode 100644
-index 0000000..39647b8
+index 0000000..d9577d5
 --- /dev/null
 +++ b/patches/7.2/0016-sound.patch
-@@ -0,0 +1,105 @@
-+From a5fddbb1a61f2aec21cf238e273b92679a08e2e3 Mon Sep 17 00:00:00 2001
+@@ -0,0 +1,121 @@
++From ab520364e5086800dd197203f693e1447bebdc32 Mon Sep 17 00:00:00 2001
 +From: Chris Simpson <chris@nilk.net>
-+Date: Sat, 17 Oct 2026 06:51:10 +0000
++Date: Sat, 17 Oct 2026 07:25:21 +0000
 +Subject: [PATCH] ALSA: hda/realtek: Limit internal mic gain on Microsoft
 + Surface Pro 9
 +
@@ -30,27 +31,28 @@ index 0000000..39647b8
 +the default 100% source volume is a usable level.
 +
 +The PCI SSID (8086:7270) and codec SSID (10ec:1284) are Intel and
-+Realtek defaults, so the quirk is matched by the codec SSID and the
-+fixup checks the DMI vendor and product name before changing anything.
++Realtek defaults, so other machines can match the entry.  Like the
++ASUS TX300 entry, clear the fixup after the first pick unless the DMI
++vendor and product name match, so that those machines still get their
++pin and vendor fixups.
 +
 +Assisted-by: LLM
 +---
-+ sound/hda/codecs/realtek/alc269.c | 45 +++++++++++++++++++++++++++++++
-+ 1 file changed, 45 insertions(+)
++ sound/hda/codecs/realtek/alc269.c | 52 +++++++++++++++++++++++++++++++
++ 1 file changed, 52 insertions(+)
 +
 +diff --git a/sound/hda/codecs/realtek/alc269.c b/sound/hda/codecs/realtek/alc269.c
-+index e98cc42e1..874269c70 100644
++index e98cc42e1..83c8631d6 100644
 +--- a/sound/hda/codecs/realtek/alc269.c
 ++++ b/sound/hda/codecs/realtek/alc269.c
-+@@ -3873,6 +3873,45 @@ static void alc288_fixup_surface_swap_dacs(struct hda_codec *codec,
++@@ -3873,6 +3873,40 @@ static void alc288_fixup_surface_swap_dacs(struct hda_codec *codec,
 + 	spec->gen.preferred_dacs = preferred_pairs;
 + }
 + 
 ++/*
 ++ * The Surface Pro 9 internal mic clips badly when the Capture and Mic Boost
 ++ * volumes are both at max (+60 dB), which is where an unconfigured user space
-++ * starts them.  Remove the boost and limit every ADC to +18 dB.  The SSIDs
-++ * are Intel and Realtek defaults, so match the machine by DMI as well.
+++ * starts them.  Remove the boost and limit every ADC to +18 dB.
 ++ */
 ++static void alc274_fixup_surface_pro9_mic(struct hda_codec *codec,
 ++					  const struct hda_fixup *fix, int action)
@@ -59,10 +61,6 @@ index 0000000..39647b8
 ++	hda_nid_t nid;
 ++
 ++	if (action != HDA_FIXUP_ACT_PRE_PROBE)
-++		return;
-++
-++	if (!dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") ||
-++	    !dmi_match(DMI_PRODUCT_NAME, "Surface Pro 9"))
 ++		return;
 ++
 ++	snd_hda_override_amp_caps(codec, 0x12, HDA_INPUT, 0);
@@ -88,7 +86,7 @@ index 0000000..39647b8
 + static void alc274_fixup_hp_89e9_amp(struct hda_codec *codec,
 + 				     const struct hda_fixup *fix, int action)
 + {
-+@@ -4237,6 +4276,7 @@ enum {
++@@ -4237,6 +4271,7 @@ enum {
 + 	ALC236_FIXUP_DELL_HP_POP_NOISE,
 + 	ALC274_FIXUP_HP_89E9_GPIO,
 + 	ALC274_FIXUP_HP_VERBS,
@@ -96,7 +94,7 @@ index 0000000..39647b8
 + };
 + 
 + /* A special fixup for Lenovo C940 and Yoga Duet 7;
-+@@ -6916,6 +6956,10 @@ static const struct hda_fixup alc269_fixups[] = {
++@@ -6916,6 +6951,10 @@ static const struct hda_fixup alc269_fixups[] = {
 + 		.chained = true,
 + 		.chain_id = ALC274_FIXUP_HP_89E9_GPIO,
 + 	},
@@ -107,7 +105,7 @@ index 0000000..39647b8
 + };
 + 
 + static const struct hda_quirk alc269_fixup_tbl[] = {
-+@@ -7714,6 +7758,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
++@@ -7714,6 +7753,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
 + 	SND_PCI_QUIRK(0x10ec, 0x124c, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
 + 	SND_PCI_QUIRK(0x10ec, 0x1252, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
 + 	SND_PCI_QUIRK(0x10ec, 0x1254, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
@@ -115,6 +113,25 @@ index 0000000..39647b8
 + 	SND_PCI_QUIRK(0x10ec, 0x12cc, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
 + 	SND_PCI_QUIRK(0x10ec, 0x12f6, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
 + 	SND_PCI_QUIRK(0x10f7, 0x8338, "Panasonic CF-SZ6", ALC269_FIXUP_ASPIRE_HEADSET_MIC),
++@@ -9010,6 +9050,18 @@ static int alc269_probe(struct hda_codec *codec, const struct hda_device_id *id)
++ 		codec->fixup_id = HDA_FIXUP_ID_NOT_SET;
++ 	}
++ 
+++	/*
+++	 * The Surface Pro 9's SSIDs are Intel and Realtek defaults, so the entry
+++	 * can match other machines.  Clear it there, so that they still get their
+++	 * pin and vendor fixups.
+++	 */
+++	if (codec->fixup_id == ALC274_FIXUP_SURFACE_PRO9_MIC &&
+++	    (!dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") ||
+++	     !dmi_match(DMI_PRODUCT_NAME, "Surface Pro 9"))) {
+++		codec_dbg(codec, "Clear Surface Pro 9 fixup on another machine\n");
+++		codec->fixup_id = HDA_FIXUP_ID_NOT_SET;
+++	}
+++
++ 	snd_hda_pick_pin_fixup(codec, alc269_pin_fixup_tbl, alc269_fixups, true);
++ 	snd_hda_pick_pin_fixup(codec, alc269_fallback_pin_fixup_tbl, alc269_fixups, false);
++ 	snd_hda_pick_fixup(codec, NULL,	alc269_fixup_vendor_tbl,
 +-- 
 +2.43.0
 +
