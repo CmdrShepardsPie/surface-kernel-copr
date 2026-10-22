@@ -1,6 +1,6 @@
 Fedora-only fix-up, kept here on purpose: this repository builds its own package, kernel-surface-cmdrshepardspie
 (see pins.conf), which installs beside linux-surface's kernel-surface and must never replace or remove it. It
-changes the Fedora packaging patches taken from PKG_PATCHES_COMMIT:
+changes linux-surface's own Fedora packaging patches (pkg/fedora/kernel-surface/patches):
 - 0003: drops "Conflicts:/Obsoletes: kernel-surface < 6.3.6-1". Under the new name those lines would act on
   linux-surface's own package (old versions only, but an Obsoletes of another project's package is never ours
   to ship). Its other lines name %{package_name}, which is now this repository's own name, so they stay.
@@ -13,14 +13,23 @@ changes the Fedora packaging patches taken from PKG_PATCHES_COMMIT:
 - 0005: the same Recommends: intel-vsc-firmware line, with 0004's line gone from its context.
 ---
 diff --git a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
-index ae8b1df..d8ce073 100644
+index 57931d658..29928e529 100644
 --- a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
 +++ b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
-@@ -13,17 +13,6 @@ diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
- index d92ef1a8d86a..c5748edf9301 100644
+@@ -6,25 +6,14 @@ Subject: [PATCH 3/6] Let kernel-surface conflict with older versions of the
+ 
+ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+ ---
+- redhat/kernel.spec.template | 18 ++++++++++++++++++
+- 1 file changed, 18 insertions(+)
++ redhat/kernel.spec.template | 14 ++++++++++++++
++ 1 file changed, 14 insertions(+)
+ 
+ diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+ index a900bead421b..27f9f69ea0ff 100644
  --- a/redhat/kernel.spec.template
  +++ b/redhat/kernel.spec.template
--@@ -785,6 +785,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
+-@@ -803,6 +803,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
 - Suggests: %{name}-core = %{specversion}-%{release}
 - Provides: installonlypkg(kernel)
 - Provides: kernel = %{KVERREL}
@@ -31,16 +40,72 @@ index ae8b1df..d8ce073 100644
 - %endif
 - 
 - 
- @@ -1619,6 +1623,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+-@@ -1639,6 +1643,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
++@@ -1639,6 +1639,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: installonlypkg(kernel)\
+@@ -33,7 +22,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  AutoReqProv: no\
+  Requires(pre): findutils\
+  Requires: findutils\
+-@@ -1668,6 +1674,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
++@@ -1668,6 +1670,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
+  Requires: %{name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
+  Requires: %{name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
+  Provides: kernel-devel-matched = %{specrpmversion}-%{release}\
+@@ -42,7 +31,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  %description %{?1:%{1}-}devel-matched\
+  This meta package is used to install matching core and devel packages for a given %{?2:%{2} }kernel.\
+  %{nil}
+-@@ -1731,6 +1739,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
++@@ -1731,6 +1735,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
+  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -51,7 +40,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  %if %{-m:1}%{!-m:0}\
+  Requires: %{name}-modules-extra-uname-r = %{KVERREL}%{uname_variant %{?1}}\
+  %endif\
+-@@ -1764,6 +1774,8 @@ Provides: kernel%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
++@@ -1764,6 +1770,8 @@ Provides: kernel%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -60,7 +49,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  %if %{-m:1}%{!-m:0}\
+  Requires: %{name}-modules-uname-r = %{KVERREL}%{uname_variant %{?1}}\
+  %endif\
+-@@ -1790,6 +1802,8 @@ Provides: installonlypkg(kernel-module)\
++@@ -1790,6 +1798,8 @@ Provides: installonlypkg(kernel-module)\
+  Provides: kernel%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -69,7 +58,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  %if %{-m:1}%{!-m:0}\
+  Requires: %{name}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
+  %endif\
+-@@ -1815,6 +1829,8 @@ Suggests: %{name}-%{1}-core = %{specversion}-%{release}\
++@@ -1815,6 +1825,8 @@ Suggests: %{name}-%{1}-core = %{specversion}-%{release}\
+  %if "%{1}" == "rt" || "%{1}" == "rt-debug" || "%{1}" == "rt-64k" || "%{1}" == "rt-64k-debug"\
+  Requires: realtime-setup\
+  %endif\
+@@ -78,7 +67,7 @@ index a900bead421b..27f9f69ea0ff 100644
+  Provides: installonlypkg(kernel)\
+  Provides: kernel = %{KVERREL}+%{1}\
+  %description %{1}\
+-@@ -1842,6 +1858,8 @@ Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
++@@ -1842,6 +1854,8 @@ Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: %{name}-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+  Provides: installonlypkg(kernel)\
+  Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{uname_suffix %{?1}}\
 diff --git a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch b/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
 deleted file mode 100644
-index 11505dc..0000000
+index 1ff70ead8..000000000
 --- a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
 +++ /dev/null
-@@ -1,96 +0,0 @@
--From 9b58106e19b6de4e9acf3c65f13e5b23083a59f4 Mon Sep 17 00:00:00 2001
+@@ -1,93 +0,0 @@
+-From b7423396c17f147a5a25618aa4d18b1458c233b0 Mon Sep 17 00:00:00 2001
 -From: Dorian Stoll <dorian.stoll@tmsp.io>
 -Date: Tue, 30 Sep 2025 20:12:29 +0200
 -Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
@@ -48,14 +113,14 @@ index 11505dc..0000000
 -
 -Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
 ----
-- redhat/kernel.spec.template | 36 ++++++++++++++++++++++++++++++++++++
-- 1 file changed, 36 insertions(+)
+- redhat/kernel.spec.template | 33 +++++++++++++++++++++++++++++++++
+- 1 file changed, 33 insertions(+)
 -
 -diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
--index c5748edf9301..f26b37b3354d 100644
+-index 27f9f69ea0ff..3c9c6846ade9 100644
 ---- a/redhat/kernel.spec.template
 -+++ b/redhat/kernel.spec.template
--@@ -1221,6 +1221,11 @@ Source4000: README.rst
+-@@ -1214,6 +1214,11 @@ Source4000: README.rst
 - Source4001: rpminspect.yaml
 - Source4002: gating.yaml
 - 
@@ -67,7 +132,7 @@ index 11505dc..0000000
 - ## Patches needed for building this package
 - 
 - %if !%{nopatches}
--@@ -1263,6 +1268,7 @@ Requires(pre): %{initrd_prereq}\
+-@@ -1256,6 +1261,7 @@ Requires(pre): %{initrd_prereq}\
 - Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
 - Recommends: linux-firmware\
 - Recommends: iptsd\
@@ -75,7 +140,7 @@ index 11505dc..0000000
 - Requires(preun): systemd >= 200\
 - Conflicts: xfsprogs < 4.3.0-1\
 - Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
--@@ -1277,6 +1283,13 @@ AutoProv: yes\
+-@@ -1270,6 +1276,13 @@ AutoProv: yes\
 - %{nil}
 - 
 - 
@@ -89,7 +154,7 @@ index 11505dc..0000000
 - %package doc
 - Summary: Various documentation bits found in the kernel source
 - Group: Documentation
--@@ -3688,6 +3701,14 @@ find Documentation -type d | xargs chmod u+w
+-@@ -3818,6 +3831,11 @@ find Documentation -type d | xargs chmod u+w
 - 
 - cd linux-%{KVERREL}
 - 
@@ -98,13 +163,10 @@ index 11505dc..0000000
 -+install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
 -+install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
 -+
--+# Edit to replace chars @BUILDID@ with value of buildid; the actual value used to assemble the kernel filename.
--+sed -i "s/@BUILDID@/%{buildid}/" "%{buildroot}%{_bindir}/linux-surface-default-watchdog.py"
--+
 - # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
 - RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
 - 
--@@ -4111,6 +4132,15 @@ popd
+-@@ -4256,6 +4274,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
 - ### scripts
 - ###
 - 
@@ -120,7 +182,7 @@ index 11505dc..0000000
 - %if %{with_tools}
 - %post -n %{name}-tools-libs
 - /sbin/ldconfig
--@@ -4811,6 +4841,12 @@ fi\
+-@@ -4811,6 +4838,12 @@ fi\
 - %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
 - %endif
 - 
@@ -134,18 +196,18 @@ index 11505dc..0000000
 - %if %{with_stock_base}
 - %ifnarch noarch %{nobuildarches}
 --- 
--2.53.0
+-2.56.0
 -
 diff --git a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
-index d89dec8..4987a75 100644
+index 569ab14df..2422bdf96 100644
 --- a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
 +++ b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
 @@ -12,13 +12,12 @@ diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
- index f26b37b3354d..14a3f28bf01f 100644
+ index 3c9c6846ade9..22fbc02d5dce 100644
  --- a/redhat/kernel.spec.template
  +++ b/redhat/kernel.spec.template
--@@ -1267,6 +1267,7 @@ Requires(pre): %{kernel_prereq}\
-+@@ -1262,5 +1262,6 @@ Requires(pre): %{kernel_prereq}\
+-@@ -1260,6 +1260,7 @@ Requires(pre): %{kernel_prereq}\
++@@ -1260,5 +1260,6 @@ Requires(pre): %{kernel_prereq}\
   Requires(pre): %{initrd_prereq}\
   Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
   Recommends: linux-firmware\
@@ -154,4 +216,4 @@ index d89dec8..4987a75 100644
 - Recommends: %{package_name}-default-watchdog\
   Requires(preun): systemd >= 200\
  -- 
- 2.53.0
+ 2.56.0

@@ -3,19 +3,20 @@
 The build recipe for a COPR repository of self-built [linux-surface](https://github.com/linux-surface/linux-surface)
 kernels for Fedora: linux-surface's patches on a long-term or stable kernel, packaged with
 linux-surface's own Fedora packaging (`pkg/fedora/kernel-surface`), on Fedora's kernel tree
-([kernel-ark](https://gitlab.com/cki-project/kernel-ark)). Where linux-surface's spec patches don't fit
-the kernel-ark release, they come from elsewhere, named in `pins.conf` (for 7.2: orthogonaleety's
-`f44-7.2.10-0` branch). For 7.2, the pinned patches also carry fixes and backports not yet in
-linux-surface (see `pins.conf`).
+([kernel-ark](https://gitlab.com/cki-project/kernel-ark)). The pinned patches are linux-surface's latest
+official release for Fedora, plus the fixes and backports not yet in linux-surface (see `pins.conf`).
+Where linux-surface's spec patches don't fit the kernel-ark release, they can come from elsewhere
+(`PKG_PATCHES_*` in `pins.conf`; empty today).
 
 The packages are named `kernel-surface-cmdrshepardspie` (with `-core`, `-modules` and so on), and their
-release contains `.cmdrshepardspie` (`uname -r`: `7.2.11-1.cmdrshepardspie.fc43.x86_64`). They install beside
+release contains `.cmdrshepardspie` (`uname -r`: `7.2.12-1.cmdrshepardspie.fc43.x86_64`). They install beside
 linux-surface's own `kernel-surface` packages and never replace or remove them (`PACKAGE_NAME` and
 `RELEASE_SUFFIX` in `pins.conf`; `fixups/0003` drops the packaging lines that would act on linux-surface's
 package, and its default-kernel watchdog; `build-srpm.sh` refuses any packaging patch that still names them).
 
-These are **not** official linux-surface builds. They exist to run a kernel series that
-linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until it does.
+These are **not** official linux-surface builds. They exist to carry fixes on top of linux-surface's
+latest official kernel until linux-surface or the kernel has them; once nothing is left to carry,
+use linux-surface's own `kernel-surface` packages instead.
 
 ## What's here
 
@@ -24,7 +25,7 @@ linux-surface doesn't publish for Fedora (today: 7.2, the latest stable), until 
 | `pins.conf` | Everything the build depends on, pinned: the patch repository and its full commit hash, the kernel-ark tag and the full commit hash it must point to, the package release, this repository's own package name and release suffix, and (if needed) where the Fedora packaging patches come from. |
 | `build-srpm.sh` | Builds the source package (SRPM) from `pins.conf`. Each step is described at the top of the script. |
 | `.copr/Makefile` | COPR's "make srpm" entry point: installs what `build-srpm.sh` needs, then runs it. |
-| `fixups/*.patch` | Changes applied to the patch repository's tree before the build, in name order: changes the Fedora build needs, and fixes the patch repository doesn't carry yet (`fixups/0004`, the Surface Pro 9 mic gain). Each one says why in its header, and, where it's temporary, when to drop it. |
+| `fixups/*.patch` | Changes applied to the patch repository's tree before the build, in name order: changes the Fedora build needs, and fixes the patch repository doesn't carry yet. Each one says why in its header, and, where it's temporary, when to drop it. |
 | `tests/run-tests.sh`, `tests/mutations.txt` | Hermetic tests of `build-srpm.sh` and `.copr/Makefile` against local stand-in repositories (no network), and the mutations they must catch (`FILE@@SED-EXPRESSION@@WHAT IT BREAKS`). |
 
 ## How it's built
