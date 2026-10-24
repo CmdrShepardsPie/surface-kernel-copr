@@ -1,0 +1,1190 @@
+Test-only fix-up (P-H54): adds linux-surface/kernel PR #181 (rylos/sp5-ipu3-cameras, head
+76d2ae0226af8d6b233e90fa35b154cf0be842e3, base v7.2-surface-devel 2dfd333c3af7) to patches/7.2 as
+0016-pr181-01..10, unchanged `git format-patch` output of refs/pull/181/head ^v7.2-surface-devel.
+They sort after 0015-hid-surface.patch, so build-ark.py `git am -3`s them last, on top of
+linux-surface's own 7.2.12 patch set.
+---
+diff --git a/patches/7.2/0016-pr181-01-media-i2c-ov5693-Program-the-mode-registers-on-strea.patch b/patches/7.2/0016-pr181-01-media-i2c-ov5693-Program-the-mode-registers-on-strea.patch
+new file mode 100644
+index 0000000..e385e0d
+--- /dev/null
++++ b/patches/7.2/0016-pr181-01-media-i2c-ov5693-Program-the-mode-registers-on-strea.patch
+@@ -0,0 +1,43 @@
++From ac2643331af5077a2dbdf9932ac3227980e9960d Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Thu, 15 Oct 2026 22:04:29 +0200
++Subject: [PATCH 01/10] media: i2c: ov5693: Program the mode registers on
++ stream start
++
++Same issue as ov8865: the mode registers are only written on runtime PM
++resume, so a format change on a sensor that stays powered never reaches
++the chip. Program the mode before the controls on every stream start.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov5693.c | 13 +++++++++++++
++ 1 file changed, 13 insertions(+)
++
++diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
++index 02236f3..298782a 100644
++--- a/drivers/media/i2c/ov5693.c
+++++ b/drivers/media/i2c/ov5693.c
++@@ -976,6 +976,19 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
++ 			return ret;
++ 
++ 		mutex_lock(&ov5693->lock);
+++
+++		/*
+++		 * Same as ov8865: the mode registers are only written on
+++		 * runtime PM resume, so a format change on a sensor that stays
+++		 * powered never reaches the chip. Program the mode first, then
+++		 * the controls, so the mode registers don't clobber them.
+++		 */
+++		ret = ov5693_mode_configure(ov5693);
+++		if (ret) {
+++			mutex_unlock(&ov5693->lock);
+++			goto err_power_down;
+++		}
+++
++ 		ret = __v4l2_ctrl_handler_setup(&ov5693->ctrls.handler);
++ 		if (ret) {
++ 			mutex_unlock(&ov5693->lock);
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-02-media-Surface-Pro-5-fix-front-and-rear-camera-orient.patch b/patches/7.2/0016-pr181-02-media-Surface-Pro-5-fix-front-and-rear-camera-orient.patch
+new file mode 100644
+index 0000000..5bc80e6
+--- /dev/null
++++ b/patches/7.2/0016-pr181-02-media-Surface-Pro-5-fix-front-and-rear-camera-orient.patch
+@@ -0,0 +1,140 @@
++From 1beb70ac54b8434b6c92a8fe7e9404195cc24532 Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Thu, 15 Oct 2026 22:05:01 +0200
++Subject: [PATCH 02/10] media: Surface Pro 5: fix front and rear camera
++ orientation
++
++The SSDB of the Surface Pro 5 (SKU 1796, and 1807 for the LTE model)
++reports a 180 degree rotation for both the front OV5693 and the rear
++OV8865. Measured on the device, both sensors need a vertical flip only,
++without mirroring, which is not a rotation: applying the reported 180
++degrees leaves both images mirrored.
++
++- ipu-bridge: add a DMI list of sensors that are not rotated despite
++  what the SSDB says, and report 0 degrees for them.
++- ov8865: on these machines invert the VFLIP control, so the default
++  value gives an upright image and userspace (libcamera resets the
++  flip controls) keeps working.
++
++The front sensor gets the same treatment in a separate patch.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov8865.c           | 25 ++++++++++++++++
++ drivers/media/pci/intel/ipu-bridge.c | 44 ++++++++++++++++++++++++++++
++ 2 files changed, 69 insertions(+)
++
++diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
++index 289a34a..104ba47 100644
++--- a/drivers/media/i2c/ov8865.c
+++++ b/drivers/media/i2c/ov8865.c
++@@ -8,6 +8,7 @@
++ #include <linux/clk.h>
++ #include <linux/delay.h>
++ #include <linux/device.h>
+++#include <linux/dmi.h>
++ #include <linux/i2c.h>
++ #include <linux/module.h>
++ #include <linux/of_graph.h>
++@@ -2189,11 +2190,35 @@ static int ov8865_blue_balance_configure(struct ov8865_sensor *sensor,
++ 
++ /* Flip */
++ 
+++/*
+++ * On the Surface Pro 5 the rear OV8865 is mounted vertically mirrored: the
+++ * upright image needs the sensor's vertical flip enabled. Invert the VFLIP
+++ * control so that the default (0) gives an upright image.
+++ */
+++static const struct dmi_system_id ov8865_vflip_inverted_dmi_ids[] = {
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++	},
+++	{}
+++};
+++
++ static int ov8865_flip_vert_configure(struct ov8865_sensor *sensor, bool enable)
++ {
++ 	u8 bits = OV8865_FORMAT1_FLIP_VERT_ISP_EN |
++ 		  OV8865_FORMAT1_FLIP_VERT_SENSOR_EN;
++ 
+++	if (dmi_check_system(ov8865_vflip_inverted_dmi_ids))
+++		enable = !enable;
+++
++ 	return ov8865_update_bits(sensor, OV8865_FORMAT1_REG, bits,
++ 				  enable ? bits : 0);
++ }
++diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
++index 1aa595c..67e2570 100644
++--- a/drivers/media/pci/intel/ipu-bridge.c
+++++ b/drivers/media/pci/intel/ipu-bridge.c
++@@ -155,6 +155,45 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
++ 	{} /* Terminating entry */
++ };
++ 
+++/*
+++ * DMI matches for devices whose SSDB reports a 180° rotation for sensors that
+++ * are not actually rotated. On the Surface Pro 5 the firmware reports 180° for
+++ * both the front (OV5693) and the rear (OV8865) camera. Measured on the
+++ * device, both need a vertical flip only and no mirroring, which is not a
+++ * rotation: report 0 degrees and let the sensor drivers apply the flip.
+++ */
+++static const struct dmi_system_id not_rotated_sensor_dmi_ids[] = {
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++		.driver_data = "INT33BE",
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++		.driver_data = "INT347A",
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++		.driver_data = "INT33BE",
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++		.driver_data = "INT347A",
+++	},
+++	{} /* Terminating entry */
+++};
+++
++ static const struct ipu_property_names prop_names = {
++ 	.clock_frequency = "clock-frequency",
++ 	.rotation = "rotation",
++@@ -346,6 +385,11 @@ static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
++ 		if (acpi_dev_hid_match(adev, dmi_id->driver_data))
++ 			return 180;
++ 
+++	for (dmi_id = dmi_first_match(not_rotated_sensor_dmi_ids); dmi_id;
+++	     dmi_id = dmi_first_match(dmi_id + 1))
+++		if (acpi_dev_hid_match(adev, dmi_id->driver_data))
+++			return 0;
+++
++ 	switch (ssdb->degree) {
++ 	case IPU_SENSOR_ROTATION_NORMAL:
++ 		return 0;
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-03-media-i2c-ov7251-Drive-the-Surface-IR-illuminator-vi.patch b/patches/7.2/0016-pr181-03-media-i2c-ov7251-Drive-the-Surface-IR-illuminator-vi.patch
+new file mode 100644
+index 0000000..5c880c7
+--- /dev/null
++++ b/patches/7.2/0016-pr181-03-media-i2c-ov7251-Drive-the-Surface-IR-illuminator-vi.patch
+@@ -0,0 +1,123 @@
++From 45b006a94aa15611b2368085229e9125fa6ae5cb Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Thu, 15 Oct 2026 22:17:03 +0200
++Subject: [PATCH 03/10] media: i2c: ov7251: Drive the Surface IR illuminator
++ via STROBE
++
++On the Surface Pro 5 the IR flood LED is driven by the OV7251 STROBE
++pad, not by a GPIO or the TPS68470 LED outputs, and ACPI does not
++describe it. The mode tables leave the pad disabled (0x3005 = 0x00,
++0x3016..0x301c = 0xf0), so the LED never lights and the IR camera,
++which sits behind an IR-pass filter, only sees black.
++
++Enable the STROBE output on stream start on the Surface Pro 5 (SKU 1796
++and 1807), with an alternate-frame pattern (0x3b81 = 0xaa) so userspace
++gets lit and unlit frames. The module parameter surface_ir_strobe
++overrides the DMI match (-1 auto, 0 off, 1 on).
++
++Verified on a Surface Pro 5 (1796): with the strobe enabled the mean
++level of consecutive 640x480 frames alternates between 16 and 42, with
++it disabled it stays at 16.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov7251.c | 68 ++++++++++++++++++++++++++++++++++++++
++ 1 file changed, 68 insertions(+)
++
++diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
++index a1a91b4..14133dc 100644
++--- a/drivers/media/i2c/ov7251.c
+++++ b/drivers/media/i2c/ov7251.c
++@@ -10,6 +10,7 @@
++ #include <linux/clk.h>
++ #include <linux/delay.h>
++ #include <linux/device.h>
+++#include <linux/dmi.h>
++ #include <linux/gpio/consumer.h>
++ #include <linux/i2c.h>
++ #include <linux/init.h>
++@@ -234,6 +235,64 @@ static const struct ov7251_pll_cfgs *ov7251_pll_cfgs[] = {
++ 	[OV7251_24_MHZ] = &ov7251_pll_cfgs_24_mhz,
++ };
++ 
+++/*
+++ * Surface IR flood illuminator.
+++ *
+++ * On the Surface Pro 5 the IR LED is driven by the sensor's STROBE pad, not by
+++ * a GPIO or the TPS68470 LED outputs, and ACPI does not describe it. The mode
+++ * tables leave the pad disabled (0x3005 = 0x00, 0x3016-0x301c = 0xf0), so the
+++ * LED never lights and the IR camera (behind an IR-pass filter) sees black.
+++ *
+++ * 0x3b81 is the strobe pattern: 0xaa lights the LED on alternate frames, so
+++ * userspace gets lit and unlit frames for ambient light subtraction.
+++ *
+++ * surface_ir_strobe: -1 = auto (on for the DMI matches below), 0 = off, 1 = on.
+++ */
+++static int surface_ir_strobe = -1;
+++module_param(surface_ir_strobe, int, 0644);
+++MODULE_PARM_DESC(surface_ir_strobe,
+++		 "Drive the Surface IR illuminator via STROBE (-1 auto, 0 off, 1 on)");
+++
+++static const struct dmi_system_id ov7251_surface_ir_strobe_dmi_ids[] = {
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++	},
+++	{}
+++};
+++
+++static const struct reg_value ov7251_surface_ir_strobe_regs[] = {
+++	{ 0x3005, 0x08 },
+++	{ 0x3016, 0x10 },
+++	{ 0x3017, 0x00 },
+++	{ 0x3018, 0x00 },
+++	{ 0x301a, 0x00 },
+++	{ 0x301b, 0x00 },
+++	{ 0x301c, 0x00 },
+++	{ 0x3664, 0xf0 },
+++	{ 0x3b81, 0xaa },
+++	{ 0x3b8b, 0x00 },
+++	{ 0x3b8e, 0x03 },
+++	{ 0x3b8f, 0x08 },
+++	{ 0x3b96, 0xc0 },
+++};
+++
+++static bool ov7251_use_surface_ir_strobe(void)
+++{
+++	if (surface_ir_strobe >= 0)
+++		return surface_ir_strobe;
+++
+++	return dmi_check_system(ov7251_surface_ir_strobe_dmi_ids);
+++}
+++
++ static const struct reg_value ov7251_global_init_setting[] = {
++ 	{ 0x0103, 0x01 },
++ 	{ 0x303b, 0x02 },
++@@ -1362,6 +1421,15 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
++ 				ov7251->current_mode->height);
++ 			goto err_power_down;
++ 		}
+++		if (ov7251_use_surface_ir_strobe()) {
+++			ret = ov7251_set_register_array(ov7251,
+++					ov7251_surface_ir_strobe_regs,
+++					ARRAY_SIZE(ov7251_surface_ir_strobe_regs));
+++			if (ret < 0) {
+++				dev_err(ov7251->dev, "could not set IR strobe\n");
+++				goto err_power_down;
+++			}
+++		}
++ 		ret = __v4l2_ctrl_handler_setup(&ov7251->ctrls);
++ 		if (ret < 0) {
++ 			dev_err(ov7251->dev, "could not sync v4l2 controls\n");
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-04-media-i2c-ov5693-make-the-2x2-binned-mode-stream-on-.patch b/patches/7.2/0016-pr181-04-media-i2c-ov5693-make-the-2x2-binned-mode-stream-on-.patch
+new file mode 100644
+index 0000000..e37b12c
+--- /dev/null
++++ b/patches/7.2/0016-pr181-04-media-i2c-ov5693-make-the-2x2-binned-mode-stream-on-.patch
+@@ -0,0 +1,330 @@
++From 96157a4789347f7edce094189d88079162d54ba3 Mon Sep 17 00:00:00 2001
++From: "D. Manresa" <d.manresa@electronica-submarina.com>
++Date: Thu, 27 Aug 2026 23:03:33 +0200
++Subject: [PATCH 04/10] media: i2c: ov5693: make the 2x2-binned mode stream on
++ IPU6
++
++The driver's 1296x972 binned mode has never streamed on IPU6 machines
++(Surface Pro 7+/8/9, Go 4): the receiver reports "Transfer FIFO
++overflow" or "Frame sync error" and no frame ever completes. Because of
++that, every IPU6 setup has had to read the sensor at full 2592x1944 and
++downscale, throwing away two stops of light and pinning the AGC at its
++maximum analogue gain (127 vs ~15) - the familiar "working but unusably
++noisy" IPU6 front camera. Fix the mode by porting what the vendor
++(Windows) driver ov5693.sys programs differently, extracted from its
++mode tables:
++
++- Per-mode MIPI PLL (0x30b3: 0x70 binned / 0x83 full) and six per-mode
++  analogue readout registers. Mainline writes only the full-resolution
++  values, once, globally; the binned readout then overflows the
++  receiver's FIFO.
++
++- Readout geometry with spare pixels: cropping exactly the output size
++  starves the sensor's internal ISP and every frame fails CSI-2 framing
++  ("Frame sync error"). The vendor reads the whole pixel array, bins it
++  to 1312x978, and places the 1296x972 output via the ISP window
++  offsets. The parity of the Y offset selects the vertical Bayer phase
++  (even = the advertised BGGR, odd = GRBG); it is exposed as a module
++  parameter (binned_y_offset, default 2) because libcamera's software
++  ISP wants the advertised phase while pipelines built around the
++  Windows tuning (Intel's IPU6 HAL/PSYS) expect the vendor's odd
++  offset.
++
++- Mode-dependent vertical-flip bits: with binning, setting both FORMAT1
++  flip bits corrupts the CSI-2 framing and the ISP bit alone does not
++  flip; only the sensor-side bit both streams and flips. Re-apply the
++  vflip control when the mode is configured, since the correct bits
++  depend on the selected mode.
++
++- Cap the frame rate at 30 fps: the auto-picked 60 fps VTS for the
++  binned mode exceeds what the slower binned MIPI PLL can carry (the
++  vendor runs this mode at VTS 1984 / 30 fps).
++
++- Program MIPI_CTRL00 (0x4800) = 0x2d before stream-on. The 0x00
++  power-on default is fine on IPU3 but leaves the IPU6 D-PHY unable to
++  lock: the sensor streams yet no CSI-2 data arrives.
++
++Also document the black-level pedestal next to the BLC init values: the
++sensor keeps ~16 LSB (10-bit) at every analogue gain, while OEM .aiqb
++calibrations state 64.9 because Windows' ISYS delivers RAW10 aligned to
++12 bits.
++
++Verified on a Surface Pro 7+ (IPU6, Tiger Lake): 1296x972 at 30 fps,
++analogue gain in normal indoor light drops from 127 (maximum) to ~15,
++both through libcamera's software ISP and through Intel's IPU6 HAL on
++top of the hardware ISP. Reference setup and measurements:
++https://github.com/dmanresa-saes/surface-ipu6-cameras
++
++Signed-off-by: D. Manresa <d.manresa@electronica-submarina.com>
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov5693.c | 168 ++++++++++++++++++++++++++++++++++---
++ 1 file changed, 156 insertions(+), 12 deletions(-)
++
++diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
++index 298782a..9d517ef 100644
++--- a/drivers/media/i2c/ov5693.c
+++++ b/drivers/media/i2c/ov5693.c
++@@ -82,6 +82,17 @@
++ #define OV5693_OFFSET_START_X_REG		CCI_REG16(0x3810)
++ #define OV5693_OFFSET_START_Y_REG		CCI_REG16(0x3812)
++ 
+++/*
+++ * ISP window Y offset used in the binned mode. Parity selects the Bayer
+++ * phase of the output: 2 (even) keeps the advertised BGGR phase and is what
+++ * libcamera's software ISP expects; 3 (odd, the Windows value) yields the
+++ * GRBG phase that the IPU6 PSYS program groups from the Windows tuning
+++ * expect. Switch with: modprobe ov5693 binned_y_offset=3
+++ */
+++static int binned_y_offset = 2;
+++module_param(binned_y_offset, int, 0644);
+++MODULE_PARM_DESC(binned_y_offset, "binned-mode ISP window Y offset (2=softISP/BGGR, 3=PSYS/GRBG)");
+++
++ #define OV5693_SUB_INC_X_REG			CCI_REG8(0x3814)
++ #define OV5693_SUB_INC_Y_REG			CCI_REG8(0x3815)
++ 
++@@ -110,6 +121,10 @@
++ #define OV5693_MIN_CROP_WIDTH			2
++ #define OV5693_MIN_CROP_HEIGHT			2
++ 
+++/* MIPI control */
+++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
+++#define OV5693_MIPI_CTRL00_IPU6			0x2d
+++
++ /* Test Pattern */
++ #define OV5693_TEST_PATTERN_REG			CCI_REG8(0x5e00)
++ #define OV5693_TEST_PATTERN_ENABLE		BIT(7)
++@@ -285,6 +300,15 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
++ 	{CCI_REG8(0x3a04), 0x06},
++ 	{CCI_REG8(0x3a05), 0x14},
++ 	{CCI_REG8(0x3e07), 0x20},
+++	/*
+++	 * BLC: same values the Windows driver writes. The sensor keeps its
+++	 * black pedestal at ~16 LSB (10-bit) at every analogue gain (measured
+++	 * with dark captures; adding the remaining Windows BLC registers
+++	 * 0x4002/0x4005/0x400c/0x400d/0x404e/0x404f does not change that).
+++	 * Note the OEM .aiqb black-level calibration says 64.9 because it is
+++	 * expressed at the 12-bit alignment Windows' ISYS DMA delivers
+++	 * (16.2 <<2); see REPRODUCIR.md section 10.
+++	 */
++ 	{CCI_REG8(0x4000), 0x08},
++ 	{CCI_REG8(0x4001), 0x04},
++ 	{CCI_REG8(0x4004), 0x08},
++@@ -353,15 +377,36 @@ static const u8 ov5693_test_pattern_bits[] = {
++ 
++ /* V4L2 Controls Functions */
++ 
+++/*
+++ * Which FORMAT1 bits express a vertical flip depends on the readout mode.
+++ *
+++ * At full resolution both the sensor-side and the ISP-side bit are used, as
+++ * the datasheet describes. With 2x2 binning, setting both corrupts the CSI-2
+++ * framing: an IPU6 receiver reports "Frame sync error" on every frame and no
+++ * data arrives at all. The ISP bit alone streams cleanly but does not
+++ * actually flip the picture, so the sensor-side bit alone is the one that
+++ * both streams and flips. It also inverts the vertical Bayer phase, which
+++ * the even ISP window offset in ov5693_mode_configure() keeps in place --
+++ * measured on a Surface Pro 7+ against the full-resolution orientation.
+++ */
+++static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
+++{
+++	if (ov5693->mode.binning_y)
+++		return OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
+++
+++	return OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+++	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
+++}
+++
++ static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
++ 				      bool enable)
++ {
++-	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+++	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++ 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++ 	int ret;
++ 
++-	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, bits,
++-			      enable ? bits : 0, NULL);
+++	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, mask,
+++			      enable ? ov5693_flip_vert_bits(ov5693) : 0, NULL);
++ 	if (ret)
++ 		return ret;
++ 
++@@ -549,17 +594,73 @@ static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
++ 
++ /* System Control Functions */
++ 
+++/*
+++ * Registers the vendor (Windows) driver programs differently for the full
+++ * resolution and the 2x2 binned readout, taken from the mode tables in
+++ * ov5693.sys.
+++ *
+++ * The mainline driver writes only the full-resolution values, once, from
+++ * ov5693_global_regs, and never revisits them. Selecting the binned mode
+++ * therefore leaves the sensor with a MIPI PLL multiplier (0x30b3) and
+++ * analogue readout timing meant for twice the line length. On an IPU6 the
+++ * receiver then reports "Transfer FIFO overflow" and every frame arrives
+++ * empty, which is why the binned mode has been unusable -- and why the
+++ * sensor has had to be read at full resolution and downscaled, costing two
+++ * stops of light and forcing the AGC to its maximum analogue gain.
+++ */
+++static const struct cci_reg_sequence ov5693_mode_full_regs[] = {
+++	{CCI_REG8(0x30b3), 0x83},	/* MIPI PLL multiplier */
+++	{CCI_REG8(0x3620), 0x54},
+++	{CCI_REG8(0x3621), 0xc7},
+++	{CCI_REG8(0x3622), 0x0f},
+++	{CCI_REG8(0x3708), 0xe2},
+++	{CCI_REG8(0x3709), 0xc3},
+++	{CCI_REG8(0x371f), 0x0c},
+++};
+++
+++static const struct cci_reg_sequence ov5693_mode_binned_regs[] = {
+++	{CCI_REG8(0x30b3), 0x70},	/* MIPI PLL multiplier */
+++	{CCI_REG8(0x3600), 0xbc},	/* analogue, vendor sets it binned-only */
+++	{CCI_REG8(0x3620), 0x44},
+++	{CCI_REG8(0x3621), 0xb5},
+++	{CCI_REG8(0x3622), 0x0c},
+++	{CCI_REG8(0x3708), 0xe6},
+++	{CCI_REG8(0x3709), 0xc7},
+++	{CCI_REG8(0x371f), 0x1f},
+++};
+++
++ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ {
++ 	const struct ov5693_mode *mode = &ov5693->mode;
+++	bool binned = mode->binning_x || mode->binning_y;
++ 	int ret = 0;
++ 
+++	/*
+++	 * Readout geometry. At full resolution this is the crop rectangle
+++	 * selected over the media API, with the sensor-ISP window offsets at
+++	 * zero.
+++	 *
+++	 * The binned mode instead copies the vendor driver: read the whole
+++	 * pixel array (0..2623 x 0..1955), bin it to 1312x978, and let the
+++	 * ISP window offsets place the 1296x972 output inside that. The
+++	 * vertical offset is 2 rather than the vendor's 3: an odd offset
+++	 * shifts the Bayer phase by one row (everything decodes magenta and
+++	 * green); the vendor ISP knows the resulting phase, a V4L2 receiver
+++	 * assumes it unchanged. The
+++	 * obvious alternative -- keeping the 2592x1944 crop so the binned
+++	 * readout exactly equals the output size with zero offset -- leaves
+++	 * the sensor ISP without spare pixels around the window, and the
+++	 * frames it emits then fail CSI-2 framing ("Frame sync error" on the
+++	 * IPU6, no frame ever completes).
+++	 */
+++
++ 	/* Crop Start X */
++-	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG, mode->crop.left,
++-		  &ret);
+++	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
+++		  binned ? 0 : mode->crop.left, &ret);
++ 
++ 	/* Offset X */
++-	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG, 0, &ret);
+++	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
+++		  binned ? 8 : 0, &ret);
++ 
++ 	/* Output Size X */
++ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
++@@ -567,18 +668,20 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 
++ 	/* Crop End X */
++ 	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
++-		  mode->crop.left + mode->crop.width, &ret);
+++		  binned ? OV5693_NATIVE_WIDTH - 1 :
+++			   mode->crop.left + mode->crop.width, &ret);
++ 
++ 	/* Horizontal Total Size */
++ 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
++ 		  &ret);
++ 
++ 	/* Crop Start Y */
++-	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG, mode->crop.top,
++-		  &ret);
+++	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG,
+++		  binned ? 0 : mode->crop.top, &ret);
++ 
++-	/* Offset Y */
++-	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG, 0, &ret);
+++	/* Offset Y: parity picks the Bayer phase, see binned_y_offset. */
+++	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG,
+++		  binned ? binned_y_offset : 0, &ret);
++ 
++ 	/* Output Size Y */
++ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_Y_REG, mode->format.height,
++@@ -586,7 +689,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 
++ 	/* Crop End Y */
++ 	cci_write(ov5693->regmap, OV5693_CROP_END_Y_REG,
++-		  mode->crop.top + mode->crop.height, &ret);
+++		  binned ? OV5693_NATIVE_HEIGHT - 1 :
+++			   mode->crop.top + mode->crop.height, &ret);
++ 
++ 	/* Subsample X increase */
++ 	cci_write(ov5693->regmap, OV5693_SUB_INC_X_REG,
++@@ -604,6 +708,24 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 			OV5693_FORMAT2_HBIN_EN,
++ 			mode->binning_x ? OV5693_FORMAT2_HBIN_EN : 0, &ret);
++ 
+++	/*
+++	 * The set of FORMAT1 bits that means "vertical flip" changes with the
+++	 * readout mode, so re-apply the control now that binning is known.
+++	 */
+++	if (ov5693->ctrls.vflip && ov5693->ctrls.vflip->val)
+++		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
+++				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+++				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
+++				ov5693_flip_vert_bits(ov5693), &ret);
+++
+++	/* PLL and analogue readout timing follow the readout mode. */
+++	if (mode->binning_x || mode->binning_y)
+++		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned_regs,
+++				    ARRAY_SIZE(ov5693_mode_binned_regs), &ret);
+++	else
+++		cci_multi_reg_write(ov5693->regmap, ov5693_mode_full_regs,
+++				    ARRAY_SIZE(ov5693_mode_full_regs), &ret);
+++
++ 	return ret;
++ }
++ 
++@@ -611,6 +733,18 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
++ {
++ 	int ret = 0;
++ 
+++	/*
+++	 * Program MIPI_CTRL00 (CSI-2 clock-lane control) before starting the
+++	 * stream. The 0x00 power-on default is accepted by the IPU3 ISP but
+++	 * leaves the IPU6 D-PHY (Surface Pro 7+/8/9) unable to lock onto the
+++	 * link: the sensor streams yet the receiver gets no CSI-2 data and
+++	 * capture times out. 0x2d matches the value the vendor (Windows)
+++	 * driver writes and lets the IPU6 receive frames.
+++	 */
+++	if (enable)
+++		cci_write(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
+++			  OV5693_MIPI_CTRL00_IPU6, &ret);
+++
++ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
++ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
++ 		  &ret);
++@@ -762,6 +896,16 @@ static unsigned int __ov5693_calc_vts(u32 height)
++ 
++ 	tgt_fps = rounddown(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / height, 30);
++ 
+++	/*
+++	 * Cap at 30fps. Left alone this picks 60fps for the 2x2 binned mode,
+++	 * which halves VTS to 1038 -- and the binned readout runs off a slower
+++	 * MIPI PLL (0x30b3), so the link cannot carry twice the frame rate:
+++	 * the IPU6 reports "Frame sync error" and no frame ever completes. The
+++	 * vendor driver runs the same mode at VTS 1984. Staying at 30fps also
+++	 * keeps the exposure ceiling, which is VTS bound, where it was.
+++	 */
+++	tgt_fps = min(tgt_fps, 30U);
+++
++ 	return ALIGN_DOWN(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / tgt_fps, 2);
++ }
++ 
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-05-media-i2c-ov5693-Surface-Pro-5-upright-front-image-b.patch b/patches/7.2/0016-pr181-05-media-i2c-ov5693-Surface-Pro-5-upright-front-image-b.patch
+new file mode 100644
+index 0000000..f21f752
+--- /dev/null
++++ b/patches/7.2/0016-pr181-05-media-i2c-ov5693-Surface-Pro-5-upright-front-image-b.patch
+@@ -0,0 +1,138 @@
++From 1ee078ca03ec5926355f65592088f447a1bb7e65 Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Thu, 15 Oct 2026 22:53:04 +0200
++Subject: [PATCH 05/10] media: i2c: ov5693: Surface Pro 5: upright front image
++ by default
++
++The front OV5693 of the Surface Pro 5 is mounted vertically mirrored:
++the upright, unmirrored image needs the sensor vertical flip and no
++horizontal flip. The firmware reports a 180 degree rotation, which makes
++userspace enable both flips and leaves the image mirrored.
++
++ipu-bridge now reports 0 degrees for this sensor; invert the VFLIP
++control on the Surface Pro 5 (SKU 1796/1807) so that its default value
++gives the upright image.
++
++In the full 2592x1944 readout the vertical flip also moves the Bayer
++phase by one column (BGGR -> GBRG), which gives a magenta image through
++libcamera. The crop start only moves in steps of two columns, so shift
++the output window by one column and widen the crop accordingly while
++the flip is active.
++
++Verified on a Surface Pro 5 (1796): upright and unmirrored in the full
++and in the binned 1296x972 mode, BGGR phase in both, natural colours
++through libcamera.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov5693.c | 49 +++++++++++++++++++++++++++++++++++---
++ 1 file changed, 46 insertions(+), 3 deletions(-)
++
++diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
++index 9d517ef..1d7a9b3 100644
++--- a/drivers/media/i2c/ov5693.c
+++++ b/drivers/media/i2c/ov5693.c
++@@ -16,6 +16,7 @@
++ #include <linux/clk.h>
++ #include <linux/delay.h>
++ #include <linux/device.h>
+++#include <linux/dmi.h>
++ #include <linux/i2c.h>
++ #include <linux/module.h>
++ #include <linux/pm_runtime.h>
++@@ -398,9 +399,39 @@ static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
++ 	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++ }
++ 
+++/*
+++ * On the Surface Pro 5 the front OV5693 is mounted vertically mirrored: the
+++ * upright, unmirrored image needs the sensor's vertical flip and no horizontal
+++ * flip (the firmware reports a 180 degree rotation instead, which would leave
+++ * the image mirrored). Invert the VFLIP control so that its default (0) gives
+++ * the upright image; ipu-bridge reports 0 degrees for this sensor.
+++ */
+++static const struct dmi_system_id ov5693_vflip_inverted_dmi_ids[] = {
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++	},
+++	{}
+++};
+++
+++static bool ov5693_vflip_enabled(bool ctrl_val)
+++{
+++	return ctrl_val ^ !!dmi_check_system(ov5693_vflip_inverted_dmi_ids);
+++}
+++
++ static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
++ 				      bool enable)
++ {
+++	enable = ov5693_vflip_enabled(enable);
+++
++ 	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++ 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++ 	int ret;
++@@ -633,6 +664,7 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ {
++ 	const struct ov5693_mode *mode = &ov5693->mode;
++ 	bool binned = mode->binning_x || mode->binning_y;
+++	bool vflip_shift;
++ 	int ret = 0;
++ 
++ 	/*
++@@ -654,13 +686,22 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 	 * IPU6, no frame ever completes).
++ 	 */
++ 
+++	/*
+++	 * In the full readout the vertical flip (ISP + sensor bits) moves the
+++	 * Bayer phase by one column (BGGR -> GBRG). The crop start is only
+++	 * honoured in steps of two, so shift the output window by one column
+++	 * instead, and widen the crop so the window still fits.
+++	 */
+++	vflip_shift = !binned && ov5693->ctrls.vflip &&
+++		      ov5693_vflip_enabled(ov5693->ctrls.vflip->val);
+++
++ 	/* Crop Start X */
++ 	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
++ 		  binned ? 0 : mode->crop.left, &ret);
++ 
++ 	/* Offset X */
++ 	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
++-		  binned ? 8 : 0, &ret);
+++		  binned ? 8 : vflip_shift, &ret);
++ 
++ 	/* Output Size X */
++ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
++@@ -669,7 +710,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 	/* Crop End X */
++ 	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
++ 		  binned ? OV5693_NATIVE_WIDTH - 1 :
++-			   mode->crop.left + mode->crop.width, &ret);
+++			   mode->crop.left + mode->crop.width +
+++			   (vflip_shift ? 2 : 0), &ret);
++ 
++ 	/* Horizontal Total Size */
++ 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
++@@ -712,7 +754,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 	 * The set of FORMAT1 bits that means "vertical flip" changes with the
++ 	 * readout mode, so re-apply the control now that binning is known.
++ 	 */
++-	if (ov5693->ctrls.vflip && ov5693->ctrls.vflip->val)
+++	if (ov5693->ctrls.vflip &&
+++	    ov5693_vflip_enabled(ov5693->ctrls.vflip->val))
++ 		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
++ 				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++ 				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-06-media-i2c-ov8865-Reset-VBLANK-on-mode-change-30-fps-.patch b/patches/7.2/0016-pr181-06-media-i2c-ov8865-Reset-VBLANK-on-mode-change-30-fps-.patch
+new file mode 100644
+index 0000000..f87b34f
+--- /dev/null
++++ b/patches/7.2/0016-pr181-06-media-i2c-ov8865-Reset-VBLANK-on-mode-change-30-fps-.patch
+@@ -0,0 +1,117 @@
++From 7e561d914802a6ee0b33e3f99763923a225981cc Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Thu, 15 Oct 2026 23:38:59 +0200
++Subject: [PATCH 06/10] media: i2c: ov8865: Reset VBLANK on mode change, 30 fps
++ default on Surface Pro 5
++
++set_fmt() updates the VBLANK range and default for the new mode but keeps
++the current value when it is still in range. A value left over from the
++previous mode then keeps that mode's timing: after the full-size mode
++(VBLANK 22) the 800x600 mode runs faster than its nominal 90 fps, with
++the exposure capped accordingly. Set VBLANK to the mode default on every
++active format change, and derive the exposure range from it.
++
++On the Surface Pro 5 the rear camera is used through libcamera's IPU3
++pipeline, which does not change the frame length. With the 800x600 mode,
++which libcamera picks for 640x480 and smaller requests, the exposure is
++limited to ~11 ms and indoor images are black even at maximum analogue
++gain. On this machine (SKU 1796/1807) default that mode to 30 fps by
++tripling its frame length; higher frame rates remain available through
++VBLANK.
++
++Verified on a Surface Pro 5 (1796): 800x600 at 30.6 fps with the full
++exposure range usable.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov8865.c | 52 ++++++++++++++++++++++++++++++++++++--
++ 1 file changed, 50 insertions(+), 2 deletions(-)
++
++diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
++index 104ba47..eff9919 100644
++--- a/drivers/media/i2c/ov8865.c
+++++ b/drivers/media/i2c/ov8865.c
++@@ -2726,6 +2726,43 @@ static int ov8865_get_fmt(struct v4l2_subdev *subdev,
++ 	return 0;
++ }
++ 
+++/*
+++ * The Surface Pro 5 exposes the rear camera through libcamera's IPU3
+++ * pipeline, which does not change the frame length. In the 800x600 mode
+++ * (90 fps) the exposure is then capped at ~11 ms and indoor images are
+++ * black even at maximum gain, so default to 30 fps there. Higher frame
+++ * rates stay available through VBLANK.
+++ */
+++static const struct dmi_system_id ov8865_30fps_default_dmi_ids[] = {
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+++		},
+++	},
+++	{
+++		.matches = {
+++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+++		},
+++	},
+++	{}
+++};
+++
+++/* The 800x600 mode is the only one faster than 30 fps: 90 fps at its VTS. */
+++#define OV8865_SVGA_FPS_DIVIDER			3
+++
+++static u32 ov8865_vblank_default(const struct ov8865_mode *mode)
+++{
+++	u32 vts = mode->vts;
+++
+++	if (mode->output_size_x == 800 && mode->output_size_y == 600 &&
+++	    dmi_check_system(ov8865_30fps_default_dmi_ids))
+++		vts *= OV8865_SVGA_FPS_DIVIDER;
+++
+++	return vts - mode->output_size_y;
+++}
+++
++ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
++ 			  struct v4l2_subdev_state *sd_state,
++ 			  struct v4l2_subdev_format *format)
++@@ -2736,6 +2773,7 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
++ 	u32 mbus_code = 0;
++ 	unsigned int hblank;
++ 	unsigned int index;
+++	u32 vblank_def;
++ 	int exposure_max;
++ 	int ret = 0;
++ 
++@@ -2776,15 +2814,25 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
++ 		 sensor->state.mbus_code != mbus_code)
++ 		ret = ov8865_state_configure(sensor, mode, mbus_code);
++ 
+++	vblank_def = ov8865_vblank_default(mode);
++ 	__v4l2_ctrl_modify_range(sensor->ctrls.vblank, OV8865_TIMING_MIN_VTS,
++ 				 OV8865_TIMING_MAX_VTS - mode->output_size_y,
++-				 1, mode->vts - mode->output_size_y);
+++				 1, vblank_def);
+++
+++	/*
+++	 * Start every mode from its default frame length: a VBLANK value left
+++	 * over from the previous mode would keep that mode's timing (e.g. the
+++	 * full-size mode's 22 lines make the 800x600 mode run at ~93 fps).
+++	 */
+++	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE)
+++		__v4l2_ctrl_s_ctrl(sensor->ctrls.vblank, vblank_def);
++ 
++ 	hblank = mode->hts - mode->output_size_x;
++ 	__v4l2_ctrl_modify_range(sensor->ctrls.hblank, hblank, hblank, 1,
++ 				 hblank);
++ 
++-	exposure_max = mode->vts - OV8865_INTEGRATION_TIME_MARGIN;
+++	exposure_max = mode->output_size_y + vblank_def -
+++		       OV8865_INTEGRATION_TIME_MARGIN;
++ 	__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
++ 				 sensor->ctrls.exposure->minimum, exposure_max,
++ 				 sensor->ctrls.exposure->step,
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-07-media-i2c-ov8865-Fix-the-VTS-high-byte-mask.patch b/patches/7.2/0016-pr181-07-media-i2c-ov8865-Fix-the-VTS-high-byte-mask.patch
+new file mode 100644
+index 0000000..2855384
+--- /dev/null
++++ b/patches/7.2/0016-pr181-07-media-i2c-ov8865-Fix-the-VTS-high-byte-mask.patch
+@@ -0,0 +1,31 @@
++From 988a59b44bdeec6e7698f9f13bd51927a8eb9e6a Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Fri, 16 Oct 2026 10:05:05 +0200
++Subject: [PATCH 07/10] media: i2c: ov8865: Fix the VTS high byte mask
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov8865.c | 4 ++--
++ 1 file changed, 2 insertions(+), 2 deletions(-)
++
++diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
++index eff9919..a3289d2 100644
++--- a/drivers/media/i2c/ov8865.c
+++++ b/drivers/media/i2c/ov8865.c
++@@ -181,10 +181,10 @@
++ #define OV8865_HTS_L_REG			0x380d
++ #define OV8865_HTS_L(v)				((v) & GENMASK(7, 0))
++ #define OV8865_VTS_H_REG			0x380e
++-#define OV8865_VTS_H(v)				(((v) & GENMASK(11, 8)) >> 8)
+++#define OV8865_VTS_H(v)				(((v) & GENMASK(14, 8)) >> 8)
++ #define OV8865_VTS_L_REG			0x380f
++ #define OV8865_VTS_L(v)				((v) & GENMASK(7, 0))
++-#define OV8865_TIMING_MAX_VTS			0xffff
+++#define OV8865_TIMING_MAX_VTS			0x7fff
++ #define OV8865_TIMING_MIN_VTS			0x04
++ #define OV8865_OFFSET_X_H_REG			0x3810
++ #define OV8865_OFFSET_X_H(v)			(((v) & GENMASK(15, 8)) >> 8)
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-08-media-i2c-ov8865-Allow-fine-analogue-gain-steps.patch b/patches/7.2/0016-pr181-08-media-i2c-ov8865-Allow-fine-analogue-gain-steps.patch
+new file mode 100644
+index 0000000..8d349b2
+--- /dev/null
++++ b/patches/7.2/0016-pr181-08-media-i2c-ov8865-Allow-fine-analogue-gain-steps.patch
+@@ -0,0 +1,27 @@
++From 710832923c0de4348833d2e4f65892b1ef102d3b Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Fri, 16 Oct 2026 10:05:24 +0200
++Subject: [PATCH 08/10] media: i2c: ov8865: Allow fine analogue gain steps
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov8865.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
++index a3289d2..14fcba8 100644
++--- a/drivers/media/i2c/ov8865.c
+++++ b/drivers/media/i2c/ov8865.c
++@@ -2553,7 +2553,7 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
++ 
++ 	/* Gain */
++ 
++-	v4l2_ctrl_new_std(handler, ops, V4L2_CID_ANALOGUE_GAIN, 128, 2048, 128,
+++	v4l2_ctrl_new_std(handler, ops, V4L2_CID_ANALOGUE_GAIN, 128, 2048, 1,
++ 			  128);
++ 
++ 	/* White Balance */
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-09-media-i2c-ov5693-30-fps-binned-readout-values.patch b/patches/7.2/0016-pr181-09-media-i2c-ov5693-30-fps-binned-readout-values.patch
+new file mode 100644
+index 0000000..873d37a
+--- /dev/null
++++ b/patches/7.2/0016-pr181-09-media-i2c-ov5693-30-fps-binned-readout-values.patch
+@@ -0,0 +1,97 @@
++From 77d0f3de6bdcfd844e402feda9a4dc5ad2d4db0a Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Fri, 16 Oct 2026 10:05:24 +0200
++Subject: [PATCH 09/10] media: i2c: ov5693: 30 fps binned readout values
++
++With the readout and MIPI PLL values of the 60 fps binned mode, the IPU3
++CIO2 of the Surface Pro 5 loses several frames per stream ("frame sync
++error", payloads of 778 or 831 lines instead of 972). The 30 fps binned
++values (MIPI PLL multiplier 0x7d, analogue 0x3620-0x3622, 0x3708,
++0x3709, 0x371f) stream cleanly: 90 of 90 frames, no errors, through
++libcamera at 640x480.
++
++Use them by default; the module parameter binned_regs selects the old
++set (0) or the 30 fps values with the full-mode PLL (2). Also set 0x4307
++to 0x30 and add a blc_target parameter for the black level target
++(0x4009) for further tuning.
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov5693.c | 40 ++++++++++++++++++++++++++++++++++++--
++ 1 file changed, 38 insertions(+), 2 deletions(-)
++
++diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
++index 1d7a9b3..a25b86b 100644
++--- a/drivers/media/i2c/ov5693.c
+++++ b/drivers/media/i2c/ov5693.c
++@@ -318,7 +318,7 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
++ 	{CCI_REG8(0x4009), 0x10},
++ 	{CCI_REG8(0x4058), 0x00},
++ 	{CCI_REG8(0x4101), 0xb2},
++-	{CCI_REG8(0x4307), 0x31},
+++	{CCI_REG8(0x4307), 0x30},
++ 	{CCI_REG8(0x4511), 0x05},
++ 	{CCI_REG8(0x4512), 0x01},
++ 	{CCI_REG8(0x481f), 0x30},
++@@ -660,6 +660,33 @@ static const struct cci_reg_sequence ov5693_mode_binned_regs[] = {
++ 	{CCI_REG8(0x371f), 0x1f},
++ };
++ 
+++/*
+++ * Binned readout set. With the 60 fps values (0) the IPU3 CIO2 of the
+++ * Surface Pro 5 loses several frames per stream ("frame sync error",
+++ * short payloads); the 30 fps values (1, default) stream cleanly.
+++ *   binned_regs = 0: readout and MIPI PLL of the 60 fps binned mode
+++ *   binned_regs = 1: 30 fps binned values, MIPI PLL multiplier 0x7d
+++ *   binned_regs = 2: 30 fps binned values with the full-mode PLL (0x83)
+++ * blc_target: black level target (0x4009); 0 leaves the default.
+++ */
+++static int binned_regs = 1;
+++module_param(binned_regs, int, 0644);
+++MODULE_PARM_DESC(binned_regs, "binned readout set (0=60fps, 1=30fps, 2=30fps+full PLL)");
+++
+++static int blc_target;
+++module_param(blc_target, int, 0644);
+++MODULE_PARM_DESC(blc_target, "black level target 0x4009 (0=default)");
+++
+++static const struct cci_reg_sequence ov5693_mode_binned30_regs[] = {
+++	{CCI_REG8(0x30b3), 0x7d},	/* MIPI PLL multiplier */
+++	{CCI_REG8(0x3620), 0x54},
+++	{CCI_REG8(0x3621), 0xc7},
+++	{CCI_REG8(0x3622), 0x0f},
+++	{CCI_REG8(0x3708), 0xe6},
+++	{CCI_REG8(0x3709), 0xc7},
+++	{CCI_REG8(0x371f), 0x0c},
+++};
+++
++ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ {
++ 	const struct ov5693_mode *mode = &ov5693->mode;
++@@ -762,13 +789,22 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 				ov5693_flip_vert_bits(ov5693), &ret);
++ 
++ 	/* PLL and analogue readout timing follow the readout mode. */
++-	if (mode->binning_x || mode->binning_y)
+++	if ((mode->binning_x || mode->binning_y) && binned_regs) {
+++		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned30_regs,
+++				    ARRAY_SIZE(ov5693_mode_binned30_regs), &ret);
+++		if (binned_regs == 2)
+++			cci_write(ov5693->regmap, CCI_REG8(0x30b3), 0x83, &ret);
+++	} else if (mode->binning_x || mode->binning_y)
++ 		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned_regs,
++ 				    ARRAY_SIZE(ov5693_mode_binned_regs), &ret);
++ 	else
++ 		cci_multi_reg_write(ov5693->regmap, ov5693_mode_full_regs,
++ 				    ARRAY_SIZE(ov5693_mode_full_regs), &ret);
++ 
+++	if (blc_target)
+++		cci_write(ov5693->regmap, CCI_REG8(0x4009), blc_target & 0xff,
+++			  &ret);
+++
++ 	return ret;
++ }
++ 
++-- 
++2.43.0
++
+diff --git a/patches/7.2/0016-pr181-10-media-i2c-ov7251-Surface-IR-strobe-pulse-follows-the.patch b/patches/7.2/0016-pr181-10-media-i2c-ov7251-Surface-IR-strobe-pulse-follows-the.patch
+new file mode 100644
+index 0000000..c2b62c9
+--- /dev/null
++++ b/patches/7.2/0016-pr181-10-media-i2c-ov7251-Surface-IR-strobe-pulse-follows-the.patch
+@@ -0,0 +1,78 @@
++From 76d2ae0226af8d6b233e90fa35b154cf0be842e3 Mon Sep 17 00:00:00 2001
++From: Marco Ziliani <rylos78@gmail.com>
++Date: Fri, 16 Oct 2026 10:05:46 +0200
++Subject: [PATCH 10/10] media: i2c: ov7251: Surface IR strobe pulse follows the
++ exposure
++
++Signed-off-by: Marco Ziliani <rylos78@gmail.com>
++Patchset: cameras
++---
++ drivers/media/i2c/ov7251.c | 32 +++++++++++++++++++++++++++++++-
++ 1 file changed, 31 insertions(+), 1 deletion(-)
++
++diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
++index 14133dc..a15df17 100644
++--- a/drivers/media/i2c/ov7251.c
+++++ b/drivers/media/i2c/ov7251.c
++@@ -285,6 +285,18 @@ static const struct reg_value ov7251_surface_ir_strobe_regs[] = {
++ 	{ 0x3b96, 0xc0 },
++ };
++ 
+++/*
+++ * Strobe pattern (0x3b81): 0xaa lights alternate frames, 0xff every frame.
+++ * The strobe pulse follows the exposure time (0x3b8c-0x3b8f, in lines),
+++ * clamped to the range the Surface uses.
+++ */
+++static int surface_ir_pattern = 0xaa;
+++module_param(surface_ir_pattern, int, 0644);
+++MODULE_PARM_DESC(surface_ir_pattern, "IR strobe pattern 0x3b81 (0xaa alternate frames, 0xff every frame)");
+++
+++#define OV7251_STROBE_MIN_LINES		52
+++#define OV7251_STROBE_MAX_LINES		776
+++
++ static bool ov7251_use_surface_ir_strobe(void)
++ {
++ 	if (surface_ir_strobe >= 0)
++@@ -924,13 +936,28 @@ static int ov7251_set_exposure(struct ov7251 *ov7251, s32 exposure)
++ {
++ 	u16 reg;
++ 	u8 val[3];
+++	s32 strobe;
+++	int ret;
++ 
++ 	reg = OV7251_AEC_EXPO_0;
++ 	val[0] = (exposure & 0xf000) >> 12; /* goes to OV7251_AEC_EXPO_0 */
++ 	val[1] = (exposure & 0x0ff0) >> 4;  /* goes to OV7251_AEC_EXPO_1 */
++ 	val[2] = (exposure & 0x000f) << 4;  /* goes to OV7251_AEC_EXPO_2 */
++ 
++-	return ov7251_write_seq_regs(ov7251, reg, val, 3);
+++	ret = ov7251_write_seq_regs(ov7251, reg, val, 3);
+++	if (ret < 0 || !ov7251_use_surface_ir_strobe())
+++		return ret;
+++
+++	strobe = clamp_t(s32, exposure, OV7251_STROBE_MIN_LINES,
+++			 OV7251_STROBE_MAX_LINES);
+++	val[0] = 0;
+++	val[1] = 0;
+++	val[2] = strobe >> 8;
+++	ret = ov7251_write_seq_regs(ov7251, 0x3b8c, val, 3);
+++	if (ret < 0)
+++		return ret;
+++
+++	return ov7251_write_reg(ov7251, 0x3b8f, strobe & 0xff);
++ }
++ 
++ static int ov7251_set_gain(struct ov7251 *ov7251, s32 gain)
++@@ -1425,6 +1452,9 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
++ 			ret = ov7251_set_register_array(ov7251,
++ 					ov7251_surface_ir_strobe_regs,
++ 					ARRAY_SIZE(ov7251_surface_ir_strobe_regs));
+++			if (!ret)
+++				ret = ov7251_write_reg(ov7251, 0x3b81,
+++						       surface_ir_pattern & 0xff);
++ 			if (ret < 0) {
++ 				dev_err(ov7251->dev, "could not set IR strobe\n");
++ 				goto err_power_down;
++-- 
++2.43.0
++
