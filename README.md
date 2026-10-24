@@ -61,6 +61,13 @@ machine's own Machine Owner Key (MOK). No private key is ever in this repository
 
 To rebuild the same kernel (for example, after a packaging fix), increase `PACKAGE_RELEASE` instead.
 
+**A .0 release** (X.Y.0), before Fedora has a stable-branch tag `kernel-X.Y.1-0`: use kernel-ark's
+os-build release tag for it, `kernel-X.Y.0-N` (for 7.3, `kernel-7.3.0-65`, on `v7.3`). `build-srpm.sh`
+then fetches `vX.Y` and `linux-X.Y.y` with history back to `vX.Y-rc1`, checks that the tag sits on
+`vX.Y`, and tells kernel-ark's Makefile to use `linux-X.Y.y` as its upstream branch (at an os-build
+tag it defaults to `master`). Packaging patches written for a `fedora-X.Y` spec may not fit an
+os-build spec; check them, as in step 2. Move to `kernel-X.Y.1-0` once kernel-ark has it.
+
 ## Running it yourself
 
 In any Fedora container, with network access:

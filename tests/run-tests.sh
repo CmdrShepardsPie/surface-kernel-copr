@@ -61,6 +61,7 @@ suffix = "." + PACKAGE_NAME if "% args.package_name" in suffix else suffix.split
 subprocess.run(["git", "-C", a.ark_dir, "checkout", "-q", PACKAGE_TAG], check=True)   # as build-ark.py does
 head = subprocess.run(["git", "-C", a.ark_dir, "describe", "--tags", "--exact-match", "HEAD"], capture_output=True, text=True).stdout.strip()
 log = [f"mode={a.mode}", f"name={PACKAGE_NAME}", f"suffix={suffix}", f"tag={PACKAGE_TAG}", f"release={PACKAGE_RELEASE}", f"ark_head={head}", "dist=" + os.environ.get("DIST", ""),
+       "upstream_branch=" + os.environ.get("UPSTREAM_BRANCH", ""),
        "pkg_patches=" + ",".join(sorted(x.name for x in (here / "patches").glob("*.patch"))),
        "pkg_0001=" + "".join(x.read_text().strip() for x in (here / "patches").glob("0001-*.patch")),
        "sb=" + (here / "secureboot" / "0001-secureboot.patch").read_text().strip(),
@@ -92,6 +93,14 @@ git -C "${A}" branch -m linux-6.18.y
 git -C "${A}" checkout -q -b ark; mkdir "${A}/redhat"; echo spec > "${A}/redhat/spec"; git -C "${A}" add -A; git -C "${A}" commit -q -m redhat
 git -C "${A}" tag kernel-6.18.56-0; A1="$(git -C "${A}" rev-parse HEAD)"; git -C "${A}" checkout -q linux-6.18.y
 
+# ark0: a .0 release as kernel-ark has it before Fedora's stable branch: linux-6.19.y at v6.19 (after
+# v6.19-rc1 and -rc2), and the os-build tag kernel-6.19.0-65 = v6.19 + a Fedora commit.
+A0="${T}/ark0"; git -C "${T}" init -q ark0
+for v in 6.18 6.19-rc1 6.19-rc2 6.19; do echo "${v}" > "${A0}/Makefile"; git -C "${A0}" add -A; git -C "${A0}" commit -q -m "Linux ${v}"; git -C "${A0}" tag -a -m "Linux ${v}" "v${v}"; done
+git -C "${A0}" branch -m linux-6.19.y
+git -C "${A0}" checkout -q -b os-build; mkdir "${A0}/redhat"; echo spec > "${A0}/redhat/spec"; git -C "${A0}" add -A; git -C "${A0}" commit -q -m redhat
+git -C "${A0}" tag kernel-6.19.0-65; A01="$(git -C "${A0}" rev-parse HEAD)"; git -C "${A0}" checkout -q linux-6.19.y
+
 # recipe NAME: a copy of the recipe in ${T}/NAME with pins pointing at the stand-ins.
 recipe() {
   local d="${T}/$1"; rm -rf "${d}"; cp -a "${HERE}" "${d}"; rm -rf "${d}/fixups"; mkdir "${d}/fixups"
@@ -120,11 +129,29 @@ eq "...named for the package name, kernel, release and suffix" "kernel-surface-t
 has "PACKAGE_NAME written" '^name=surface-test$' "${s}"; has "RELEASE_SUFFIX written into build-ark.py" '^suffix=.test$' "${s}"
 has "srpm mode" '^mode=srpm$' "${s}"; has "PACKAGE_TAG written" '^tag=kernel-6.18.56-0$' "${s}"; has "PACKAGE_RELEASE written" '^release=1$' "${s}"
 has "kernel-ark checked out at the tag" '^ark_head=kernel-6.18.56-0$' "${s}"
+has "kernel-ark's upstream branch is linux-6.18.y" '^upstream_branch=linux-6.18.y$' "${s}"
 has "the PKG_PATCHES_COMMIT packaging patches replace CONTRIB's" '^pkg_patches=0001-iptsd.patch,0002-name.patch$' "${s}"
 has "...and its secureboot patch" '^sb=era-sb$' "${s}"
 has "the pinned commit, not the branch's newer one" '^cam=vanilla-cameras$' "${s}"
 
 u="$(git config --global user.name || true)"; eq "...the user's git config is left alone" "" "${u}"
+
+echo "== a .0 release: kernel-ark's os-build tag kernel-X.Y.0-N, on vX.Y"
+recipe r0; pin ARK_URL "file://${A0}"; pin PACKAGE_TAG kernel-6.19.0-65; pin ARK_COMMIT "${A01}"
+run bash "${R}/build-srpm.sh" "${T}/out0"; [[ "${RC}" -eq 0 ]] || printf "%s\n" "${OUT}" | tail -n 8
+eq "exit 0" 0 "${RC}"
+srpms=("${T}"/out0/*.src.rpm); eq "one source package" 1 "${#srpms[@]}"
+eq "...named for X.Y.0" "kernel-surface-test-6.19.0-1.test.fc44.src.rpm" "${srpms[0]##*/}"
+s="$(cat "${srpms[0]}")"
+has "kernel-ark checked out at the tag" '^ark_head=kernel-6.19.0-65$' "${s}"
+has "kernel-ark's upstream branch is linux-6.19.y, not its default master" '^upstream_branch=linux-6.19.y$' "${s}"
+has "...history from v6.19-rc1" "history from v6.19-rc1" "${OUT}"
+# The tag on a release candidate, not on v6.19: refused.
+git -C "${A0}" tag -f kernel-6.19.0-65 v6.19-rc2 >/dev/null
+rc2="$(git -C "${A0}" rev-parse 'v6.19-rc2^{commit}')"; recipe r0b; pin ARK_URL "file://${A0}"; pin PACKAGE_TAG kernel-6.19.0-65; pin ARK_COMMIT "${rc2}"
+run bash "${R}/build-srpm.sh" "${T}/out0b"; eq "a .0 tag based on v6.19-rc2: refused" 1 "${RC}"
+has "...saying so" "isn't based on v6.19 " "${OUT}"; n="$(count "${T}/out0b")"; eq "...no source package" 0 "${n}"
+git -C "${A0}" tag -f kernel-6.19.0-65 "${A01}" >/dev/null
 
 echo "== DIST for kernel-ark"
 has "COPR's chroot (%dist empty, %fedora 44): DIST=.fc44" '^dist=.fc44$' "${s}"
@@ -186,7 +213,7 @@ eq "another DISTLOCALVERSION line: refused" 1 "${RC}"; has "...saying why" "does
 
 echo "== pins are checked before anything is fetched"
 for case in "ARK_COMMIT:${A1:0:12}:full 40-digit commit hash PACKAGE_TAG" "CONTRIB_COMMIT:${C1:0:12}:full 40-digit" "PKG_PATCHES_COMMIT:abc:full commit hash" "PACKAGE_TAG:v6.18.56:look like kernel-" \
-            "PACKAGE_TAG:kernel-6.18.0-0:no previous point release" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty" \
+            "PACKAGE_TAG:kernel-6.18.0-0:kernel-X.Y.0-N, with N from 1" "PACKAGE_TAG:kernel-6.18.56-65:point release's tag is kernel-X.Y.Z-0" "PACKAGE_RELEASE:0:positive number" "ARK_URL::ARK_URL is empty" \
             "PACKAGE_NAME:surface:look like surface-NAME" "PACKAGE_NAME:surface-a-b:look like surface-NAME" "RELEASE_SUFFIX:.a-b:look like .name" "RELEASE_SUFFIX:test:look like .name" "RELEASE_SUFFIX:.surface:look like .name"; do
   IFS=: read -r k v msg <<<"${case}"; recipe rp; pin "${k}" "${v}"
   run bash "${R}/build-srpm.sh" "${T}/outp"; eq "${k}=${v:-''}: refused" 1 "${RC}"; has "...saying why" "${msg}" "${OUT}"

@@ -15,7 +15,9 @@
 #      Fedora build needs, or a fix not yet in the patch repository; each says why in its header);
 #   5. Fedora's kernel tree (kernel-ark) at PACKAGE_TAG, which must point to ARK_COMMIT, fetched shallow with just the history
 #      kernel-ark's Makefile needs: the tag, vX.Y.Z, and the linux-X.Y.y branch, back to the previous
-#      point release;
+#      point release. A point release's tag is kernel-X.Y.Z-0 (Fedora's stable branch); a .0 release,
+#      before Fedora has a kernel-X.Y.1-0, can use kernel-ark's os-build tag kernel-X.Y.0-N, which sits
+#      on vX.Y (upstream's name for X.Y.0), with history back to vX.Y-rc1;
 #   6. DIST (the Fedora release suffix) from rpmbuild, for kernel-ark;
 #   7. linux-surface's own build-linux-surface.py --mode srpm (Red Hat's test key: the kernel is signed
 #      with the owner's MOK on the machine it's installed on, never here).
@@ -35,9 +37,19 @@ CONTRIB_URL="" CONTRIB_COMMIT="" PACKAGE_TAG="" PACKAGE_RELEASE="" PACKAGE_NAME=
 . "${HERE}/pins.conf"
 [[ "${CONTRIB_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "CONTRIB_COMMIT must be a full 40-digit commit hash"
 [[ -z "${PKG_PATCHES_COMMIT}" || "${PKG_PATCHES_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || die "PKG_PATCHES_COMMIT must be empty or a full commit hash"
-[[ "${PACKAGE_TAG}" =~ ^kernel-([0-9]+)\.([0-9]+)\.([0-9]+)-0$ ]] || die "PACKAGE_TAG must look like kernel-7.2.10-0"
-MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}"
-[[ "${PATCH}" -ge 1 ]] || die "PACKAGE_TAG: a .0 release has no previous point release to cut the history at"
+[[ "${PACKAGE_TAG}" =~ ^kernel-([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)$ ]] || die "PACKAGE_TAG must look like kernel-7.2.10-0 (or kernel-7.3.0-65 for a .0 release)"
+MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}" ARK_BUILD="${BASH_REMATCH[4]}"
+# UPSTREAM_TAG: the upstream release tag PACKAGE_TAG must sit on; CUT: where its fetched history starts.
+if [[ "${PATCH}" -ge 1 ]]; then
+  # A point release: Fedora's stable-branch tag, always kernel-X.Y.Z-0.
+  [[ "${ARK_BUILD}" == 0 ]] || die "PACKAGE_TAG: a point release's tag is kernel-X.Y.Z-0"
+  UPSTREAM_TAG="v${MAJ}.${MIN}.${PATCH}" CUT="v${MAJ}.${MIN}.$((PATCH - 1))"
+else
+  # A .0 release: kernel-ark's os-build release tag kernel-X.Y.0-N (N is ark's build number, never 0),
+  # on upstream's vX.Y. There is no previous point release, so the history starts at vX.Y-rc1.
+  [[ "${ARK_BUILD}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_TAG: a .0 release's tag is kernel-X.Y.0-N, with N from 1"
+  UPSTREAM_TAG="v${MAJ}.${MIN}" CUT="v${MAJ}.${MIN}-rc1"
+fi
 [[ "${PACKAGE_RELEASE}" =~ ^[1-9][0-9]*$ ]] || die "PACKAGE_RELEASE must be a positive number"
 # kernel-${PACKAGE_NAME} is the package's name; RELEASE_SUFFIX goes into its release (no "-": rpm forbids it there).
 [[ "${PACKAGE_NAME}" =~ ^surface-[a-z0-9]+$ ]] || die "PACKAGE_NAME must look like surface-NAME (not linux-surface's own \"surface\")"
@@ -108,19 +120,24 @@ for f in "${PKG}"/patches/*.patch "${PKG}"/secureboot/*.patch; do
   fi
 done
 
-echo "== kernel-ark: ${PACKAGE_TAG}, v${MAJ}.${MIN}.${PATCH}, linux-${MAJ}.${MIN}.y (history from v${MAJ}.${MIN}.$((PATCH - 1)))"
+echo "== kernel-ark: ${PACKAGE_TAG}, ${UPSTREAM_TAG}, linux-${MAJ}.${MIN}.y (history from ${CUT})"
 ARK_MIRROR="${WORK}/ark.git"
 git init -q --bare "${ARK_MIRROR}"
-git -C "${ARK_MIRROR}" fetch -q --shallow-exclude="v${MAJ}.${MIN}.$((PATCH - 1))" "${ARK_URL}" \
-  "refs/tags/${PACKAGE_TAG}:refs/tags/${PACKAGE_TAG}" "refs/tags/v${MAJ}.${MIN}.${PATCH}:refs/tags/v${MAJ}.${MIN}.${PATCH}" \
-  "refs/heads/linux-${MAJ}.${MIN}.y:refs/heads/linux-${MAJ}.${MIN}.y" || die "kernel-ark: couldn't fetch ${PACKAGE_TAG}, v${MAJ}.${MIN}.${PATCH} and linux-${MAJ}.${MIN}.y"
+git -C "${ARK_MIRROR}" fetch -q --shallow-exclude="${CUT}" "${ARK_URL}" \
+  "refs/tags/${PACKAGE_TAG}:refs/tags/${PACKAGE_TAG}" "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}" \
+  "refs/heads/linux-${MAJ}.${MIN}.y:refs/heads/linux-${MAJ}.${MIN}.y" || die "kernel-ark: couldn't fetch ${PACKAGE_TAG}, ${UPSTREAM_TAG} and linux-${MAJ}.${MIN}.y"
 tagged="$(git -C "${ARK_MIRROR}" rev-parse "${PACKAGE_TAG}^{commit}")" || tagged=""
 [[ "${tagged}" == "${ARK_COMMIT}" ]] || die "kernel-ark: ${PACKAGE_TAG} points to ${tagged:-nothing}, not the pinned ${ARK_COMMIT} (moved tag?)"
 base="$(git -C "${ARK_MIRROR}" merge-base "${PACKAGE_TAG}" "linux-${MAJ}.${MIN}.y")" || die "kernel-ark: no common base of ${PACKAGE_TAG} and linux-${MAJ}.${MIN}.y"
 described="$(git -C "${ARK_MIRROR}" describe "${base}")" || described=""
-[[ "${described}" == "v${MAJ}.${MIN}.${PATCH}" ]] \
-  || die "kernel-ark: ${PACKAGE_TAG} isn't based on v${MAJ}.${MIN}.${PATCH} on linux-${MAJ}.${MIN}.y (has the branch moved past it?)"
+[[ "${described}" == "${UPSTREAM_TAG}" ]] \
+  || die "kernel-ark: ${PACKAGE_TAG} isn't based on ${UPSTREAM_TAG} on linux-${MAJ}.${MIN}.y (has the branch moved past it?)"
 git clone -q "${ARK_MIRROR}" "${PKG}/kernel-ark"
+# kernel-ark's Makefile versions the package from the branch its redhat/Makefile.variables names as
+# upstream (UPSTREAM_BRANCH ?= ...): linux-X.Y.y on Fedora's stable branches, but "master" (Linus's
+# tree, which moves on) at an os-build tag. Name the fetched linux-X.Y.y for both; on a stable tag
+# that is its own default.
+export UPSTREAM_BRANCH="linux-${MAJ}.${MIN}.y"
 
 # kernel-ark's Makefile takes DIST (the release suffix, e.g. .fc44) from the environment, or else from
 # `rpmbuild --eval '%{?dist}'`. COPR's SRPM chroot leaves %dist empty, and with an empty DIST rpmbuild
