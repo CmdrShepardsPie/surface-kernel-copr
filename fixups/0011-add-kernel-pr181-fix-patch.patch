@@ -1,0 +1,85 @@
+Test-only fix-up (P-H57): adds a candidate fix on top of fixups/0010's PR #181 patches, as
+patches/7.2/0016-pr181-11, so build-ark.py `git am -3`s it right after 0016-pr181-10. PR #181's
+1ee078c shifts the ov5693 full-resolution window by one column whenever VFLIP is on; on the
+Surface Pro 9 (both flips on by default) that gives GBRG instead of BGGR. The fix shifts it only
+when exactly one flip is on. Test branch test/7.2.12-pr181-fix only, never merged.
+---
+diff --git a/patches/7.2/0016-pr181-11-media-i2c-ov5693-shift-the-full-mode-window-only-whe.patch b/patches/7.2/0016-pr181-11-media-i2c-ov5693-shift-the-full-mode-window-only-whe.patch
+new file mode 100644
+index 0000000..9ff7279
+--- /dev/null
++++ b/patches/7.2/0016-pr181-11-media-i2c-ov5693-shift-the-full-mode-window-only-whe.patch
+@@ -0,0 +1,73 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Chris Simpson <chris@nilk.net>
++Date: Sun, 25 Oct 2026 12:00:00 +0000
++Subject: [PATCH 11/11] media: i2c: ov5693: shift the full-mode window only
++ when one flip is active
++
++On a Surface Pro 9 (IPU6), full-resolution raw frames read BGGR at
++hflip/vflip 0/0 and 0/1 but GBRG at 1/0 and 1/1, the default there.
++In the full readout each flip moves the column phase by one, so two
++flips cancel out. Shift the window when exactly one flip is active:
++unchanged on the Surface Pro 5 (vflip only), no shift with both flips.
++
++Patchset: cameras
++---
++ drivers/media/i2c/ov5693.c | 19 +++++++++++--------
++ 1 file changed, 11 insertions(+), 8 deletions(-)
++
++diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
++index a25b86b..bc9dc8b 100644
++--- a/drivers/media/i2c/ov5693.c
+++++ b/drivers/media/i2c/ov5693.c
++@@ -691,7 +691,7 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ {
++ 	const struct ov5693_mode *mode = &ov5693->mode;
++ 	bool binned = mode->binning_x || mode->binning_y;
++-	bool vflip_shift;
+++	bool phase_shift;
++ 	int ret = 0;
++ 
++ 	/*
++@@ -714,13 +714,16 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 	 */
++ 
++ 	/*
++-	 * In the full readout the vertical flip (ISP + sensor bits) moves the
++-	 * Bayer phase by one column (BGGR -> GBRG). The crop start is only
++-	 * honoured in steps of two, so shift the output window by one column
+++	 * In the full readout each flip (ISP + sensor bits) moves the Bayer
+++	 * phase by one column (BGGR -> GBRG), so with both flips on it is
+++	 * back to BGGR. The crop start is only honoured in steps of two, so
+++	 * when exactly one flip is on, shift the output window by one column
++ 	 * instead, and widen the crop so the window still fits.
++ 	 */
++-	vflip_shift = !binned && ov5693->ctrls.vflip &&
++-		      ov5693_vflip_enabled(ov5693->ctrls.vflip->val);
+++	phase_shift = !binned &&
+++		      (ov5693->ctrls.vflip &&
+++		       ov5693_vflip_enabled(ov5693->ctrls.vflip->val)) !=
+++		      (ov5693->ctrls.hflip && ov5693->ctrls.hflip->val);
++ 
++ 	/* Crop Start X */
++ 	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
++@@ -728,7 +731,7 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 
++ 	/* Offset X */
++ 	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
++-		  binned ? 8 : vflip_shift, &ret);
+++		  binned ? 8 : phase_shift, &ret);
++ 
++ 	/* Output Size X */
++ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
++@@ -738,7 +741,7 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
++ 	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
++ 		  binned ? OV5693_NATIVE_WIDTH - 1 :
++ 			   mode->crop.left + mode->crop.width +
++-			   (vflip_shift ? 2 : 0), &ret);
+++			   (phase_shift ? 2 : 0), &ret);
++ 
++ 	/* Horizontal Total Size */
++ 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
++-- 
++2.43.0
++
