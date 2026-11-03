@@ -101,6 +101,14 @@ git -C "${A0}" branch -m linux-6.19.y
 git -C "${A0}" checkout -q -b os-build; mkdir "${A0}/redhat"; echo spec > "${A0}/redhat/spec"; git -C "${A0}" add -A; git -C "${A0}" commit -q -m redhat
 git -C "${A0}" tag kernel-6.19.0-65; A01="$(git -C "${A0}" rev-parse HEAD)"; git -C "${A0}" checkout -q linux-6.19.y
 
+# ark1: a first point release: linux-6.19.y with v6.19 and v6.19.1 (upstream has no v6.19.0), and
+# kernel-6.19.1-0 = v6.19.1 + a Fedora commit.
+A2="${T}/ark1"; git -C "${T}" init -q ark1
+for v in 6.18 6.19 6.19.1; do echo "${v}" > "${A2}/Makefile"; git -C "${A2}" add -A; git -C "${A2}" commit -q -m "Linux ${v}"; git -C "${A2}" tag -a -m "Linux ${v}" "v${v}"; done
+git -C "${A2}" branch -m linux-6.19.y
+git -C "${A2}" checkout -q -b ark; mkdir "${A2}/redhat"; echo spec > "${A2}/redhat/spec"; git -C "${A2}" add -A; git -C "${A2}" commit -q -m redhat
+git -C "${A2}" tag kernel-6.19.1-0; A21="$(git -C "${A2}" rev-parse HEAD)"; git -C "${A2}" checkout -q linux-6.19.y
+
 # recipe NAME: a copy of the recipe in ${T}/NAME with pins pointing at the stand-ins.
 recipe() {
   local d="${T}/$1"; rm -rf "${d}"; cp -a "${HERE}" "${d}"; rm -rf "${d}/fixups"; mkdir "${d}/fixups"
@@ -152,6 +160,13 @@ rc2="$(git -C "${A0}" rev-parse 'v6.19-rc2^{commit}')"; recipe r0b; pin ARK_URL 
 run bash "${R}/build-srpm.sh" "${T}/out0b"; eq "a .0 tag based on v6.19-rc2: refused" 1 "${RC}"
 has "...saying so" "isn't based on v6.19 " "${OUT}"; n="$(count "${T}/out0b")"; eq "...no source package" 0 "${n}"
 git -C "${A0}" tag -f kernel-6.19.0-65 "${A01}" >/dev/null
+
+echo "== a first point release: kernel-X.Y.1-0, whose previous release is vX.Y (no vX.Y.0 exists)"
+recipe r1p; pin ARK_URL "file://${A2}"; pin PACKAGE_TAG kernel-6.19.1-0; pin ARK_COMMIT "${A21}"
+run bash "${R}/build-srpm.sh" "${T}/out1p"; [[ "${RC}" -eq 0 ]] || printf "%s\n" "${OUT}" | tail -n 8
+eq "exit 0" 0 "${RC}"
+has "...history from v6.19" "history from v6.19)" "${OUT}"
+n="$(count "${T}/out1p")"; eq "...one source package" 1 "${n}"
 
 echo "== DIST for kernel-ark"
 has "COPR's chroot (%dist empty, %fedora 44): DIST=.fc44" '^dist=.fc44$' "${s}"
