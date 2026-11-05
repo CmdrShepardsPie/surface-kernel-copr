@@ -43,7 +43,9 @@ MAJ="${BASH_REMATCH[1]}" MIN="${BASH_REMATCH[2]}" PATCH="${BASH_REMATCH[3]}" ARK
 if [[ "${PATCH}" -ge 1 ]]; then
   # A point release: Fedora's stable-branch tag, always kernel-X.Y.Z-0.
   [[ "${ARK_BUILD}" == 0 ]] || die "PACKAGE_TAG: a point release's tag is kernel-X.Y.Z-0"
+  # The release before X.Y.1 is X.Y.0, which upstream tags vX.Y (no vX.Y.0 exists).
   UPSTREAM_TAG="v${MAJ}.${MIN}.${PATCH}" CUT="v${MAJ}.${MIN}.$((PATCH - 1))"
+  [[ "${PATCH}" -ne 1 ]] || CUT="v${MAJ}.${MIN}"
 else
   # A .0 release: kernel-ark's os-build release tag kernel-X.Y.0-N (N is ark's build number, never 0),
   # on upstream's vX.Y. There is no previous point release, so the history starts at vX.Y-rc1.

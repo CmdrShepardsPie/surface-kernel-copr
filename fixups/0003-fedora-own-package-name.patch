@@ -11,10 +11,10 @@ changes linux-surface's own Fedora packaging patches (pkg/fedora/kernel-surface/
   an unbootable kernel the default. Without it, Fedora's own rules (UPDATEDEFAULT in /etc/sysconfig/kernel)
   decide.
 - 0005: the same Recommends: intel-vsc-firmware line, with 0004's line gone from its context.
-This version fits the packaging patches as rebased onto kernel-7.3.0-65's spec (CONTRIB 7.3-pro9).
+This version fits the packaging patches as linux-surface refreshed them for kernel-7.3.1-0's spec (their 8dd1a0b).
 ---
 diff --git a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
-index 2f00eaff..f6e9063a 100644
+index e607b4db..2c44a561 100644
 --- a/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
 +++ b/pkg/fedora/kernel-surface/patches/0003-Let-kernel-surface-conflict-with-older-versions-of-t.patch
 @@ -6,25 +6,14 @@ Subject: [PATCH 3/6] Let kernel-surface conflict with older versions of the
@@ -27,8 +27,8 @@ index 2f00eaff..f6e9063a 100644
 + 1 file changed, 14 insertions(+)
  
  diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
--index 2978ee8ba..c46301ffd 100644
-+index 2978ee8ba..a45fbbded 100644
+-index c7f9ba26cd57..b6bc160bac72 100644
++index c7f9ba26cd57..307dde2a408d 100644
  --- a/redhat/kernel.spec.template
  +++ b/redhat/kernel.spec.template
 -@@ -762,6 +762,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
@@ -47,7 +47,7 @@ index 2f00eaff..f6e9063a 100644
   Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
   Provides: installonlypkg(kernel)\
-@@ -33,7 +22,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -33,7 +22,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   AutoReqProv: no\
   Requires(pre): findutils\
   Requires: findutils\
@@ -56,7 +56,7 @@ index 2f00eaff..f6e9063a 100644
   Requires: %{name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
   Requires: %{name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
   Provides: kernel-devel-matched = %{specrpmversion}-%{release}\
-@@ -42,7 +31,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -42,7 +31,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   %description %{?1:%{1}-}devel-matched\
   This meta package is used to install matching core and devel packages for a given %{?1:%{1} }kernel.\
   %{nil}
@@ -65,7 +65,7 @@ index 2f00eaff..f6e9063a 100644
   Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -51,7 +40,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -51,7 +40,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   AutoReq: no\
   AutoProv: yes\
   %description %{?1:%{1}-}modules-extra\
@@ -74,7 +74,7 @@ index 2f00eaff..f6e9063a 100644
   Provides: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -60,7 +49,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -60,7 +49,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   AutoReq: no\
   AutoProv: yes\
   %description %{?1:%{1}-}modules\
@@ -83,7 +83,7 @@ index 2f00eaff..f6e9063a 100644
   Provides: kernel%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Provides: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
   Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -69,7 +58,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -69,7 +58,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   AutoReq: no\
   AutoProv: yes\
   %description %{?1:%{1}-}modules-core\
@@ -92,7 +92,7 @@ index 2f00eaff..f6e9063a 100644
   %if "%{1}" == "rt" || "%{1}" == "rt-debug" || "%{1}" == "rt-64k" || "%{1}" == "rt-64k-debug"\
   Requires: realtime-setup\
   %endif\
-@@ -78,7 +67,7 @@ index 2978ee8ba..c46301ffd 100644
+@@ -78,7 +67,7 @@ index c7f9ba26cd57..b6bc160bac72 100644
   Provides: installonlypkg(kernel)\
   Provides: kernel = %{KVERREL}+%{1}\
   %description %{1}\
@@ -103,11 +103,11 @@ index 2f00eaff..f6e9063a 100644
   Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{uname_suffix %{?1}}\
 diff --git a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch b/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
 deleted file mode 100644
-index 2eee265c..00000000
+index 9beef9ba..00000000
 --- a/pkg/fedora/kernel-surface/patches/0004-Install-scripts-and-service-files-for-keeping-the-su.patch
 +++ /dev/null
 @@ -1,93 +0,0 @@
--From b960e0ed9ae78a1ffd4a18f091ca39211a3e18f7 Mon Sep 17 00:00:00 2001
+-From d212b3c25132358b7e3a6e9644fe7f6fa83cec6d Mon Sep 17 00:00:00 2001
 -From: Dorian Stoll <dorian.stoll@tmsp.io>
 -Date: Tue, 30 Sep 2025 20:12:29 +0200
 -Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
@@ -119,7 +119,7 @@ index 2eee265c..00000000
 - 1 file changed, 33 insertions(+)
 -
 -diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
--index c46301ffd..0211b153c 100644
+-index b6bc160bac72..9adc564bcde1 100644
 ---- a/redhat/kernel.spec.template
 -+++ b/redhat/kernel.spec.template
 -@@ -1178,6 +1178,11 @@ Source4000: README.rst
@@ -156,7 +156,7 @@ index 2eee265c..00000000
 - %package doc
 - Summary: Various documentation bits found in the kernel source
 - %description doc
--@@ -3707,6 +3720,11 @@ find Documentation -type d | xargs chmod u+w
+-@@ -3699,6 +3712,11 @@ find Documentation -type d | xargs chmod u+w
 - 
 - cd linux-%{KVERREL}
 - 
@@ -168,7 +168,7 @@ index 2eee265c..00000000
 - %if %{with_doc}
 - docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
 - 
--@@ -4154,6 +4172,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
+-@@ -4146,6 +4164,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
 - ### scripts
 - ###
 - 
@@ -184,7 +184,7 @@ index 2eee265c..00000000
 - %if %{with_tools}
 - %post -n %{name}-tools-libs
 - /sbin/ldconfig
--@@ -4709,6 +4736,12 @@ fi\
+-@@ -4701,6 +4728,12 @@ fi\
 - %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
 - %endif
 - 
@@ -198,18 +198,18 @@ index 2eee265c..00000000
 - %if %{with_stock_base}
 - %ifnarch noarch %{nobuildarches}
 --- 
--2.43.0
+-2.56.0
 -
 diff --git a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
-index aa3fa946..4217fe58 100644
+index 92fd47fe..b30c8ec9 100644
 --- a/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
 +++ b/pkg/fedora/kernel-surface/patches/0005-Pull-in-intel-vsc-firmware.patch
 @@ -9,17 +9,17 @@ This package contains the IPU3 firmware needed for camera support.
   1 file changed, 1 insertion(+)
  
  diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
--index 0211b153c..fb7597224 100644
-+index a45fbbded..b547d46f6 100644
+-index 9adc564bcde1..d2dd7c294b63 100644
++index 307dde2a408d..d114034a7aa5 100644
  --- a/redhat/kernel.spec.template
  +++ b/redhat/kernel.spec.template
 -@@ -1224,6 +1224,7 @@ Requires(pre): %{kernel_prereq}\
@@ -223,5 +223,5 @@ index aa3fa946..4217fe58 100644
   Requires(preun): systemd >= 200\
 + Conflicts: xfsprogs < 4.3.0-1\
  -- 
- 2.43.0
+ 2.56.0
  
